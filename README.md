@@ -1,23 +1,25 @@
-# On-call Health
+# GPU Fleet Report
 
-Shows an engineering manager how hard on-call is hitting each person, and which alerts to fix first. Built for the quarterly on-call review.
+Shows ML platform teams how their GPUs are actually used: allocated-but-idle GPUs, memory headroom, jobs that should run on a MIG slice or fewer GPUs, per-team chargeback, and the scheduler policies that recover capacity. Built for the infra lead who keeps hearing "we need more GPUs".
 
-**Live:** https://oncall-health.vercel.app
+**Live:** https://gpu-fleet.vercel.app
 
 ## The pain
 
-Pages arrive through several tools at all hours, a lot of them are flapping, duplicated or resolve on their own, and one person quietly absorbs the swaps and weekends. Nobody has the numbers to argue for change.
+Schedulers report a cluster as full when every GPU is allocated, not when every GPU is busy. Forgotten Jupyter sessions hold H100s for days, 8-GPU fine-tunes use 2, and small inference models sit on whole 80 GB cards. GPU utilisation hides this because one small kernel reads as 100%; DCGM's SM activity does not.
 
 ## Features
 
-- **Import** PagerDuty incidents CSV and REST API (`/incidents` plus `/log_entries`), Opsgenie alerts CSV, Rootly CSV or JSON:API, or any CSV. Format detection, column mapping and a validation report with line numbers.
-- **Per-person load** in each person's timezone and working hours: business hours, evenings, sleep hours (default 22:00 to 07:00) and weekends, plus a 7 x 24 heatmap.
-- **Ack and resolve distributions**, **fairness** (Gini and share against a fair share) and a **documented burnout-risk score**.
-- **Noise detection**: auto-resolved blips, flapping, duplicates, dependencies, never-acked and non-actionable alerts, ranked with a concrete change and the pages per month it removes. Toggle any fix as a what-if.
-- **Rotation simulator** (single, primary/secondary, follow-the-sun), **pay and time off in lieu** with an editable policy, a **printable quarterly report** and CSVs.
-- **History**: quarterly or monthly snapshots with a compare view.
-- Local-first (IndexedDB). Optional email sign-in syncs teams across devices.
-- Three synthetic sample teams.
+- **Import** DCGM metrics from a Prometheus range query (JSON or CSV, long or wide), `nvidia-smi --query-gpu` logs, Slurm `sacct -P`, `kubectl get pods -o json` or custom-columns, or any jobs CSV. Format detection, column mapping and a validation report with line numbers. Large files parse in a Web Worker.
+- **Join** jobs to GPUs by host, GPU index and time (known indices, then dcgm-exporter `hpc_job`/pod labels, then lowest free GPUs, flagged).
+- **Per job**: GPU-hours, mean/p95 SM and tensor activity, framebuffer peak vs capacity, idle GPU-hours, time at zero, multi-GPU imbalance. Classified as idle/abandoned, under-utilised, memory-bound compute-light, healthy or saturated.
+- **Right-sizing**: fewer GPUs, the smallest MIG profile that fits (dated A100/A30/H100/H200 table), or a smaller GPU class.
+- **Recoverable capacity**: the month replayed with an idle timeout, MIG slices and right-sized GPU counts, re-packed per node. The fleet heatmap animates before and after.
+- **Actions**: Slurm `slurm.conf`, `job_submit.lua` and an idle reaper; JupyterHub and Kubeflow cullers; a PrometheusRule; a per-node MIG plan with `nvidia-smi mig` commands and a mig-parted config. Per-team printable statements, per-user "your jobs" reports, CSV exports.
+- **Chargeback** at editable $/GPU-hour with an on-prem amortisation calculator.
+- **History**: monthly snapshots, a trend with a projected "with policies" point, and a compare view by account.
+- Local-first (IndexedDB). Optional email sign-in syncs clusters, settings and snapshots.
+- Two synthetic sample clusters: a 64× H100 Slurm research cluster and a 40-GPU Kubernetes inference fleet.
 
 ## Run locally
 
@@ -30,4 +32,4 @@ npm run build
 
 Cloud sync needs `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env` (see `.env.example`). Without them the app runs in local-only mode.
 
-Built by Aryan Kansagara. Independent project, not affiliated with Rootly.
+Built by Aryan Kansagara. Independent project, not affiliated with NVIDIA.

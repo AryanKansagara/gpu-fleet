@@ -38,7 +38,14 @@ function Overview({ a, cfg, setConfig, ds, period }: TabProps) {
   const anyApplied = cfg.applied.idleTimeout || cfg.applied.mig || cfg.applied.fewer
   const idleShare = a.allocGpuHours ? a.idleAllocGpuHours / a.allocGpuHours : 0
   const totalGh = CLASS_ORDER.reduce((s, c) => s + a.byClass[c].gpuHours, 0) || 1
-  const top = a.jobs.filter(j => j.rec.kind !== 'none').slice(0, 6)
+  // Round-robin across recommendation kinds so one pattern does not fill the list.
+  const top = useMemo(() => {
+    const byKind = new Map<string, JobStats[]>()
+    for (const j of a.jobs) if (j.rec.kind !== 'none' && j.rec.kind !== 'share') { const l = byKind.get(j.rec.kind) ?? []; if (l.length < 6) l.push(j); byKind.set(j.rec.kind, l) }
+    const out: JobStats[] = []
+    for (let i = 0; out.length < 6 && i < 6; i++) for (const l of byKind.values()) if (l[i] && out.length < 6) out.push(l[i])
+    return out
+  }, [a])
   return (
     <>
       {(a.smProxy || a.inferredJobs > 0) && (
@@ -398,18 +405,18 @@ function HistoryTab({ project, update, a, period }: TabProps) {
             <thead><tr><th>Metric</th><th className="num">{A.label}</th><th className="num">{B.label}</th><th className="num">Change</th></tr></thead>
             <tbody>
               {([
-                ['GPUs', A.gpus, B.gpus, (n: number) => fmtN(n), false],
-                ['Allocated', A.allocShare, B.allocShare, (n: number) => fmtPct(n, 1), false],
+                ['GPUs', A.gpus, B.gpus, (n: number) => fmtN(n), null],
+                ['Allocated', A.allocShare, B.allocShare, (n: number) => fmtPct(n, 1), null],
                 ['SM active while allocated', A.meanSmAllocated, B.meanSmAllocated, (n: number) => fmtPct(n, 1), true],
                 ['Allocated but idle', A.idleShare, B.idleShare, (n: number) => fmtPct(n, 1), false],
                 ['Idle GPU-hours', A.idleAllocGpuHours, B.idleAllocGpuHours, (n: number) => fmtN(n), false],
-                ['Spend', A.cost, B.cost, (n: number) => fmtMoney(n), false],
+                ['Spend', A.cost, B.cost, (n: number) => fmtMoney(n), null],
                 ['Idle spend', A.idleCost, B.idleCost, (n: number) => fmtMoney(n), false],
                 ['Recoverable GPUs', A.recoverableGpus, B.recoverableGpus, (n: number) => n.toFixed(1), false],
               ] as const).map(([l, x, y, f, upGood]) => {
                 const d = y - x
                 const good = upGood ? d > 0 : d < 0
-                return <tr key={l}><th scope="row">{l}</th><td className="num">{f(x)}</td><td className="num">{f(y)}</td><td className={`num ${Math.abs(d) < 1e-9 ? 'muted' : good ? 'good-text' : 'bad-text'}`}>{signed(d, f)}</td></tr>
+                return <tr key={l}><th scope="row">{l}</th><td className="num">{f(x)}</td><td className="num">{f(y)}</td><td className={`num ${Math.abs(d) < 1e-9 || upGood === null ? 'muted' : good ? 'good-text' : 'bad-text'}`}>{signed(d, f)}</td></tr>
               })}
             </tbody>
           </table>

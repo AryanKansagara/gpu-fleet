@@ -102,7 +102,7 @@ function Overview({ a, cfg, setConfig, ds, period }: TabProps) {
           {top.length === 0 ? <p className="muted">Nothing to fix in this period.</p> : (
             <ol className="wins">{top.map(j => (
               <li key={j.id}>
-                <div className="row between gap"><strong className="break mono small">{j.id}{j.name ? ` · ${j.name}` : ''}</strong><span className="small strong">{m(Math.max(j.idleCost, j.recoverableGpuHours * j.rate))}</span></div>
+                <div className="row between gap"><strong className="break mono small">{j.id}{j.name && !j.id.endsWith(j.name) ? ` · ${j.name}` : ''}</strong><span className="small strong">{m(Math.max(j.idleCost, j.recoverableGpuHours * j.rate))}</span></div>
                 <div className="muted small">{j.user} · {j.account} · {j.gpus}× {j.model}</div>
                 <div className="small">{j.rec.text}</div>
               </li>
@@ -160,7 +160,7 @@ function JobsTab({ a, cfg, project, period }: TabProps) {
             <tbody>
               {list.slice(0, limit).map(j => [
                 <tr key={j.id} className={`clickable${open === j.id ? ' open' : ''}`} onClick={() => setOpen(open === j.id ? null : j.id)} tabIndex={0} onKeyDown={e => { if (e.key === 'Enter') setOpen(open === j.id ? null : j.id) }} aria-expanded={open === j.id}>
-                  <th scope="row" className="mono small break">{j.id}{j.name && <div className="muted tiny">{j.name}</div>}</th>
+                  <th scope="row" className="mono small break">{j.id}{j.name && !j.id.endsWith(j.name) && <div className="muted tiny">{j.name}</div>}</th>
                   <td className="small">{j.account}<div className="muted tiny">{j.user}</div></td>
                   <td className="num">{j.gpus}</td>
                   <td className="num">{fmtN(j.gpuHours, j.gpuHours < 10 ? 1 : 0)}</td>

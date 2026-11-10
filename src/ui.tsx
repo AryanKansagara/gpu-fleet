@@ -64,7 +64,7 @@ export function ThemeToggle() {
   )
 }
 
-export const Monogram = () => <span className="monogram" aria-hidden="true">OH</span>
+export const Monogram = () => <span className="monogram" aria-hidden="true">GF</span>
 
 // ---------- Toasts with undo ----------
 
@@ -230,7 +230,7 @@ function AccountMenu() {
               void run(() => mode === 'in' ? signIn(email, pw) : signUp(email, pw), mode === 'in' ? 'Signed in. Syncing your projects.' : 'Account created. Syncing your projects.')
             }}>
               <h3>{mode === 'in' ? 'Sign in to sync' : 'Create an account'}</h3>
-              <p className="muted small">Optional. Everything works signed out. Signing in syncs teams, people, fixes and snapshots across devices; incident lists over 1.5 MB stay on this device.</p>
+              <p className="muted small">Optional. Everything works signed out. Signing in syncs clusters, rates, settings and monthly snapshots across devices. Raw telemetry over 1.5 MB stays on this device.</p>
               {!cloudConfigured && <p className="error small">Sync is not configured for this build.</p>}
               <label className="field"><span>Email</span><input name="email" type="email" required autoComplete="email" /></label>
               <label className="field"><span>Password</span><input name="password" type="password" required minLength={6} autoComplete={mode === 'in' ? 'current-password' : 'new-password'} /></label>
@@ -243,10 +243,10 @@ function AccountMenu() {
               <div><div className="muted small">Signed in as</div><strong className="break">{s.user.email}</strong></div>
               <div className="row gap-sm"><SyncPill />{s.error && <span className="error small">{s.error}</span>}</div>
               <button type="button" className="btn ghost sm block" disabled={busy} onClick={() => void run(syncNow)}>Sync now</button>
-              <button type="button" className="btn ghost sm block" onClick={() => void run(async () => download(`oncall-health-export-${new Date().toISOString().slice(0, 10)}.json`, await exportAll()))}>Export all my data (JSON)</button>
+              <button type="button" className="btn ghost sm block" onClick={() => void run(async () => download(`gpu-fleet-export-${new Date().toISOString().slice(0, 10)}.json`, await exportAll()))}>Export all my data (JSON)</button>
               <button type="button" className="btn ghost sm block" onClick={() => void run(signOut, 'Signed out. Your projects stay on this device.')}>Sign out</button>
               <hr />
-              <button type="button" className="btn danger-ghost sm block" disabled={busy} onClick={async () => { if (await ask('Delete cloud data?', 'Removes every On-call Health team and snapshot from the cloud. Copies on this device are kept.', 'Delete cloud data')) void run(deleteCloudData, 'Cloud data deleted.') }}>Delete my cloud data</button>
+              <button type="button" className="btn danger-ghost sm block" disabled={busy} onClick={async () => { if (await ask('Delete cloud data?', 'Removes every GPU Fleet Report cluster and snapshot from the cloud. Copies on this device are kept.', 'Delete cloud data')) void run(deleteCloudData, 'Cloud data deleted.') }}>Delete my cloud data</button>
               <button type="button" className="btn danger-ghost sm block" disabled={busy} onClick={async () => { if (await ask('Delete your account?', 'Deletes your account and all cloud data. Projects on this device are kept. This cannot be undone.', 'Delete account')) void run(deleteAccount, 'Account deleted.') }}>Delete my account</button>
               {err && <p className="error small" role="alert">{err}</p>}
             </div>
@@ -260,11 +260,11 @@ function AccountMenu() {
 export function Header() {
   const path = location.pathname
   const [menu, setMenu] = useState(false)
-  const nav = [['/', 'Product'], ['/app', 'Teams'], ['/docs', 'Docs'], ['/settings', 'Settings']] as const
+  const nav = [['/', 'Product'], ['/app', 'Clusters'], ['/docs', 'Docs'], ['/settings', 'Settings']] as const
   return (
     <header className="header">
       <div className="header-inner">
-        <Link href="/" className="brand" aria-label="On-call Health home"><Monogram /><span>On-call Health</span></Link>
+        <Link href="/" className="brand" aria-label="GPU Fleet Report home"><Monogram /><span>GPU Fleet Report</span></Link>
         <nav className={`nav${menu ? ' open' : ''}`} aria-label="Main">
           {nav.map(([h, l]) => <Link key={h} href={h} onClick={() => setMenu(false)} aria-current={(h === '/' ? path === '/' : path.startsWith(h)) ? 'page' : undefined}>{l}</Link>)}
         </nav>
@@ -287,23 +287,23 @@ export function Footer() {
   return (
     <footer className="footer">
       <div className="footer-inner">
-        <div className="footer-brand"><Monogram /> <strong>On-call Health</strong></div>
-        <nav className="footer-nav" aria-label="Footer"><Link href="/app">Teams</Link><Link href="/docs">Docs</Link><Link href="/settings">Settings</Link></nav>
-        <p>Built by Aryan Kansagara. Independent project, not affiliated with Rootly.</p>
-        <p className="muted small">Sample teams are synthetic. Your exports are processed in your browser and stored on this device unless you sign in to sync.</p>
+        <div className="footer-brand"><Monogram /> <strong>GPU Fleet Report</strong></div>
+        <nav className="footer-nav" aria-label="Footer"><Link href="/app">Clusters</Link><Link href="/docs">Docs</Link><Link href="/settings">Settings</Link></nav>
+        <p>Built by Aryan Kansagara. Independent project, not affiliated with NVIDIA.</p>
+        <p className="muted small">Sample clusters are synthetic. Your exports are parsed in your browser and stored on this device unless you sign in to sync.</p>
       </div>
     </footer>
   )
 }
 
 export function NotFound() {
-  useEffect(() => { document.title = 'Not found · On-call Health' }, [])
+  useEffect(() => { document.title = 'Not found · GPU Fleet Report' }, [])
   return (
     <section className="page narrow center notfound">
       <div className="nf-code" aria-hidden="true">404</div>
-      <h1>Nobody is on call for this page</h1>
-      <p className="muted">The page you asked for does not exist. No alert fired, so nobody was woken up.</p>
-      <div className="row gap center-x"><Link href="/" className="btn ghost">Home</Link><Link href="/app" className="btn primary">Your teams</Link></div>
+      <h1>This page was never allocated</h1>
+      <p className="muted">Zero SM activity, zero framebuffer, no job ID. Unlike most idle GPUs, it costs nothing.</p>
+      <div className="row gap center-x"><Link href="/" className="btn ghost">Home</Link><Link href="/app" className="btn primary">Your clusters</Link></div>
     </section>
   )
 }
@@ -312,4 +312,4 @@ export function Empty({ title, children, icon }: { title: string; children?: Rea
   return <div className="empty">{icon ?? <div className="empty-icon" aria-hidden="true" />}<h3>{title}</h3>{children}</div>
 }
 
-export const SyntheticBadge = () => <span className="badge synthetic" title="Generated data, not a real team">Synthetic</span>
+export const SyntheticBadge = () => <span className="badge synthetic" title="Generated data, not a real cluster">Synthetic</span>

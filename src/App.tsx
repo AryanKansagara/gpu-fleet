@@ -35,7 +35,7 @@ const Loading = () => <div className="boot" role="status"><span className="spinn
 export function App() {
   const r = route(usePath())
   useEffect(() => {
-    const titles: Record<string, string> = { landing: 'On-call Health: who on-call is waking up, and which alerts to fix first', docs: 'Docs: exporting from PagerDuty, Opsgenie and Rootly · On-call Health', settings: 'Settings · On-call Health', workspace: 'Teams · On-call Health', '404': 'Not found · On-call Health' }
+    const titles: Record<string, string> = { landing: 'GPU Fleet Report: find the GPUs you already own', docs: 'Docs: exporting DCGM, Slurm, Kubernetes and nvidia-smi data · GPU Fleet Report', settings: 'Settings · GPU Fleet Report', workspace: 'Clusters · GPU Fleet Report', '404': 'Not found · GPU Fleet Report' }
     if (titles[r.page]) document.title = titles[r.page]
   }, [r.page])
   if (r.page === 'report') return <Suspense fallback={<Loading />}><Report id={r.id} /><Toasts /></Suspense>

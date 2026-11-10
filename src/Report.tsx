@@ -1,87 +1,93 @@
 import { useEffect, useMemo } from 'react'
-import { compensation, FIX_LABEL } from './engine/analyze.ts'
-import { toCsv } from './engine/csv.ts'
-import { BUCKETS } from './engine/types.ts'
-import { BucketBar, BucketLegend, BUCKET_LABEL } from './charts.tsx'
-import { periodFromUrl } from './Project.tsx'
-import { defaultPeriod, periodOptions, useAnalysis, useProject, withPeople } from './projectData.ts'
-import { download, fmtMin, fmtMoney, fmtN, fmtPct, fmtPeriod, Link, signed, SyntheticBadge } from './ui.tsx'
+import { CLASS_LABEL, type JobStats } from './engine/analyze.ts'
+import { defaultPeriod, periodOptions, useAnalysis, useProject } from './projectData.ts'
+import { fmtMoney, fmtN, fmtPct, fmtPeriod, Link, Monogram, SyntheticBadge } from './ui.tsx'
 
+/** Printable monthly statement for one account, or a "your jobs" report for one user. */
 export default function Report({ id }: { id: string }) {
   const { loading, project, ds } = useProject(id)
+  const q = new URLSearchParams(location.search)
+  const team = q.get('team'), user = q.get('user')
   const opts = useMemo(() => periodOptions(ds), [ds])
-  const def = useMemo(() => defaultPeriod(ds, opts), [ds, opts])
-  const period = periodFromUrl(opts, def)
-  const cfg = useMemo(() => project && ds ? withPeople(project.config, ds) : null, [project?.config, ds])
-  const a = useAnalysis(ds, cfg ?? undefined, period)
-  useEffect(() => { if (project) document.title = `On-call health review · ${project.name} · ${fmtPeriod(period)}` }, [project?.name, period])
-  const pay = useMemo(() => a && cfg ? compensation(a.incidents, cfg, cfg.policy, project?.weeks ?? {}) : [], [a, cfg, project?.weeks])
+  const period = q.get('p') && opts.includes(q.get('p')!) ? q.get('p')! : defaultPeriod(ds)
+  const a = useAnalysis(ds, project?.config, period)
+  useEffect(() => { if (project) document.title = `${user ?? team ?? 'Fleet'} · ${fmtPeriod(period)} · GPU Fleet Report` }, [project?.name, team, user, period])
 
-  if (loading) return <div className="boot"><span className="spinner" /> Building the report</div>
-  if (!project || !a || !cfg) return <section className="page narrow center"><h1>Team not found</h1><Link href="/app" className="btn primary">All teams</Link></section>
-  const b = a.base, m = b.months
-  const rota = b.people.filter(p => !p.excluded)
-  const top = rota[0]
-  const noise = new Set(a.fixes.flatMap(f => f.removed)).size
-  const snaps = project.snapshots
-  const [s0, s1] = [snaps.at(-2), snaps.at(-1)]
-  const findings = [
-    `${fmtN(b.total)} pages in ${fmtPeriod(period).toLowerCase() === 'all data' ? 'the imported history' : fmtPeriod(period)} (${fmtN(b.total / m, 1)} a month); ${fmtPct(b.buckets.sleep / Math.max(1, b.total))} landed in someone's sleep hours and ${fmtPct(b.buckets.business / Math.max(1, b.total))} in business hours.`,
-    top ? `${top.name} has the highest burnout risk (${top.score}/100, ${top.band}): ${top.buckets.sleep} sleep interruptions, up to ${top.maxNights} bad nights in a row, ${top.weekendDays} days off interrupted, and ${fmtPct(top.share)} of pages against a fair share of ${fmtPct(top.fairShare)}.` : '',
-    `Load fairness across the rotation: Gini ${b.giniPages.toFixed(2)} on page counts, ${b.giniBurden.toFixed(2)} when night and weekend pages are weighted heavier (0 is perfectly even).`,
-    a.fixes.length ? `${fmtN(noise / m, 1)} pages a month (${fmtPct(noise / Math.max(1, b.total))}) come from alerts with a concrete fix. The top three alone remove ${fmtN(new Set(a.fixes.slice(0, 3).flatMap(f => f.removed)).size / m, 1)} a month.` : 'No alert met the noise thresholds this period.',
-    `Median time to acknowledge ${fmtMin(b.ackP50)} (90th percentile ${fmtMin(b.ackP90)}); ${fmtN(b.neverAcked)} pages were never acknowledged.`,
-  ].filter(Boolean)
-  const csv = () => toCsv([['person', 'pages', ...BUCKETS.map(k => `${k}_pages`), 'longest_bad_night_run', 'days_off_interrupted', 'share', 'fair_share', 'burnout_score', 'band', 'ack_p50_min'],
-    ...b.people.map(p => [p.name, p.pages, ...BUCKETS.map(k => p.buckets[k]), p.maxNights, p.weekendDays, Math.round(p.share * 1000) / 1000, Math.round(p.fairShare * 1000) / 1000, p.score, p.band, Number.isFinite(p.ackP50) ? Math.round(p.ackP50 * 10) / 10 : ''])])
+  if (loading) return <div className="boot" role="status"><span className="spinner" /> Building the statement</div>
+  if (!project || !a) return <section className="page narrow center"><h1>Nothing to report</h1><p className="muted">This cluster has no data for that period.</p><Link href="/app" className="btn primary">Clusters</Link></section>
+  const cur = project.config.currency
+  const m = (n: number) => fmtMoney(n, cur)
+  const jobs = a.jobs.filter(j => (!team || j.account === team) && (!user || j.user === user))
+  const gh = jobs.reduce((s, j) => s + j.gpuHours, 0)
+  const cost = jobs.reduce((s, j) => s + j.cost, 0)
+  const idleGh = jobs.reduce((s, j) => s + j.idleGpuHours, 0)
+  const idleCost = jobs.reduce((s, j) => s + j.idleCost, 0)
+  const smw = jobs.filter(j => Number.isFinite(j.meanSm))
+  const sm = smw.reduce((s, j) => s + j.meanSm * j.gpuHours, 0) / Math.max(1e-9, smw.reduce((s, j) => s + j.gpuHours, 0))
+  const byClass = new Map<string, { gh: number; rate: number; cost: number }>()
+  for (const j of jobs) { const r = byClass.get(j.model) ?? { gh: 0, rate: j.rate, cost: 0 }; r.gh += j.gpuHours; r.cost += j.cost; byClass.set(j.model, r) }
+  const users = new Map<string, { gh: number; cost: number; idle: number; n: number }>()
+  for (const j of jobs) { const u = users.get(j.user) ?? { gh: 0, cost: 0, idle: 0, n: 0 }; u.gh += j.gpuHours; u.cost += j.cost; u.idle += j.idleCost; u.n++; users.set(j.user, u) }
+  const fixes = jobs.filter(j => j.rec.kind !== 'none').slice(0, user ? 10 : 8)
+  const back = `/app/p/${id}/${user ? 'users' : 'teams'}?p=${period}`
+  const title = user ? `GPU usage report: ${user}` : team ? `Monthly GPU statement: ${team}` : 'Fleet GPU statement'
 
   return (
-    <article className="report">
-      <div className="report-actions">
-        <Link href={`/app/p/${id}${location.search}`} className="btn ghost">Back to the team</Link>
-        <button type="button" className="btn outline" onClick={() => download(`oncall-review-${period}.csv`, csv())}>Download CSV</button>
-        <button type="button" className="btn primary" onClick={() => print()}>Print or save as PDF</button>
+    <div className="report">
+      <div className="report-actions no-print">
+        <Link href={back} className="btn ghost sm">&larr; Back</Link>
+        <button type="button" className="btn primary sm" onClick={() => print()}>Print or save PDF</button>
       </div>
-      <div className="eyebrow">On-call health review</div>
-      <h1>{project.name}, {fmtPeriod(period)} {project.sampleId && <SyntheticBadge />}</h1>
-      <p className="muted">{fmtN(b.total)} pages · {rota.length} people in rotation · sleep hours {String(cfg.sleepStart).padStart(2, '0')}:00 to {String(cfg.sleepEnd).padStart(2, '0')}:00 local · prepared {new Date().toLocaleDateString('en-US', { dateStyle: 'long' })}</p>
-      <div className="kpis">
-        <div className="kpi"><small>Pages per month</small><b>{fmtN(b.total / m, 1)}</b></div>
-        <div className="kpi"><small>Sleep interruptions / month</small><b>{fmtN(b.buckets.sleep / m, 1)}</b></div>
-        <div className="kpi"><small>Fairness (Gini)</small><b>{b.giniPages.toFixed(2)}</b></div>
-        <div className="kpi"><small>Removable noise</small><b>{fmtPct(noise / Math.max(1, b.total))}</b></div>
-      </div>
-      <h2>Findings</h2>
-      <ol>{findings.map((f, i) => <li key={i}>{f}</li>)}</ol>
-      <h2>Load per person</h2>
-      <BucketLegend />
-      <div className="table-wrap"><table>
-        <thead><tr><th>Person</th><th className="num">Pages</th><th style={{ minWidth: 120 }}>When</th>{BUCKETS.map(k => <th key={k} className="num">{BUCKET_LABEL[k]}</th>)}<th className="num">Share / fair</th><th className="num">Risk</th></tr></thead>
-        <tbody>{b.people.map(p => <tr key={p.name}><th scope="row">{p.name}</th><td className="num">{p.pages}</td><td><BucketBar buckets={p.buckets} /></td>{BUCKETS.map(k => <td key={k} className="num">{p.buckets[k]}</td>)}<td className="num">{p.excluded ? '—' : `${fmtPct(p.share)} / ${fmtPct(p.fairShare)}`}</td><td className="num"><span className={`badge ${p.band}`}>{p.score} {p.band}</span></td></tr>)}</tbody>
-      </table></div>
-      <h2>Alerts to tune first</h2>
-      {a.fixes.length ? <div className="table-wrap"><table>
-        <thead><tr><th>#</th><th>Alert</th><th>Change</th><th className="num">Pages / mo removed</th><th className="num">At night</th></tr></thead>
-        <tbody>{a.fixes.slice(0, 8).map((f, i) => <tr key={f.id}><td>{i + 1}</td><td><strong>{f.title}</strong><div className="muted tiny">{f.service} · {f.evidence}</div></td><td><strong>{FIX_LABEL[f.kind]}.</strong> <span className="small">{f.change}</span></td><td className="num">{fmtN(f.perMonth, 1)}</td><td className="num">{fmtN(f.sleepPerMonth, 1)}</td></tr>)}</tbody>
-      </table></div> : <p className="muted">No alert met the noise thresholds.</p>}
-      {s0 && s1 && <>
-        <h2>Trend: {s0.label} to {s1.label}</h2>
-        <ul>
-          <li>Pages per month {fmtN(s0.pagesPerMonth, 1)} → {fmtN(s1.pagesPerMonth, 1)} ({signed(s1.pagesPerMonth - s0.pagesPerMonth, v => fmtN(v, 1))})</li>
-          <li>Sleep interruptions per month {fmtN(s0.buckets.sleep / (s0.days / 30.44), 1)} → {fmtN(s1.buckets.sleep / (s1.days / 30.44), 1)}</li>
-          <li>Fairness (Gini) {s0.giniPages.toFixed(2)} → {s1.giniPages.toFixed(2)}</li>
-          <li>Removable noise per month {fmtN(s0.noisePerMonth, 1)} → {fmtN(s1.noisePerMonth, 1)}</li>
-        </ul>
-      </>}
-      {pay.length > 0 && <>
-        <h2>On-call pay and time off in lieu</h2>
-        <p className="small muted">Policy: {fmtMoney(cfg.policy.stipendPerWeek, cfg.policy.currency)} per on-call week, {fmtMoney(cfg.policy.perOffHoursPage, cfg.policy.currency)} per evening or weekend page, {fmtMoney(cfg.policy.perSleepPage, cfg.policy.currency)} per sleep-hours page; {cfg.policy.toilPerSleepPage} h off per sleep page and {cfg.policy.toilPerWeekendDay} h per interrupted day off. Pages within {cfg.policy.groupMinutes} min count once.</p>
-        <div className="table-wrap"><table>
-          <thead><tr><th>Person</th><th className="num">Weeks</th><th className="num">Total</th><th className="num">Time off (h)</th></tr></thead>
-          <tbody>{pay.map(r => <tr key={r.name}><th scope="row">{r.name}</th><td className="num">{r.weeks}</td><td className="num">{fmtMoney(r.total, cfg.policy.currency)}</td><td className="num">{fmtN(r.toilHours, 1)}</td></tr>)}</tbody>
-        </table></div>
-      </>}
-      <p className="muted small" style={{ marginTop: 28 }}>Method: pages are bucketed in each person&rsquo;s local time (sleep first, then non-working days, then working hours, else evening). The burnout-risk score and noise rules are documented at {location.host}/docs. {project.sampleId ? 'This team is synthetic.' : ''}</p>
-    </article>
+      <header className="report-head">
+        <div className="row gap"><Monogram /><div><div className="muted small">{project.name} {project.sampleId && <SyntheticBadge />}</div><h1>{title}</h1></div></div>
+        <div className="report-meta small">
+          <div><span className="muted">Period</span> {fmtPeriod(period)}</div>
+          {team && user && <div><span className="muted">Account</span> {team}</div>}
+          <div><span className="muted">Issued</span> {new Date().toISOString().slice(0, 10)}</div>
+        </div>
+      </header>
+
+      <section className="report-kpis">
+        <div><span>GPU-hours allocated</span><strong>{fmtN(gh)}</strong></div>
+        <div><span>Charge</span><strong>{m(cost)}</strong></div>
+        <div><span>SM active while allocated</span><strong>{fmtPct(sm)}</strong></div>
+        <div className="bad"><span>Allocated but idle</span><strong>{m(idleCost)}</strong><small>{fmtN(idleGh)} GPU-hours</small></div>
+      </section>
+
+      <h2>Charges</h2>
+      <table>
+        <thead><tr><th>GPU class</th><th className="num">GPU-hours</th><th className="num">Rate</th><th className="num">Amount</th></tr></thead>
+        <tbody>{[...byClass].map(([c, r]) => <tr key={c}><td>{c}</td><td className="num">{fmtN(r.gh, 1)}</td><td className="num">{r.rate.toFixed(2)} {cur}/h</td><td className="num">{m(r.cost)}</td></tr>)}</tbody>
+        <tfoot><tr><th>Total</th><td className="num">{fmtN(gh, 1)}</td><td /><td className="num strong">{m(cost)}</td></tr></tfoot>
+      </table>
+
+      {!user && users.size > 0 && (
+        <>
+          <h2>By user</h2>
+          <table>
+            <thead><tr><th>User</th><th className="num">Jobs</th><th className="num">GPU-hours</th><th className="num">Charge</th><th className="num">Idle spend</th></tr></thead>
+            <tbody>{[...users].sort((x, y) => y[1].cost - x[1].cost).map(([u, r]) => <tr key={u}><td>{u}</td><td className="num">{r.n}</td><td className="num">{fmtN(r.gh)}</td><td className="num">{m(r.cost)}</td><td className="num">{m(r.idle)}</td></tr>)}</tbody>
+          </table>
+        </>
+      )}
+
+      {user && (
+        <>
+          <h2>Your jobs</h2>
+          <table>
+            <thead><tr><th>Job</th><th className="num">GPUs</th><th className="num">GPU-h</th><th className="num">SM mean</th><th className="num">Mem peak</th><th>Class</th></tr></thead>
+            <tbody>{jobs.slice(0, 40).map(j => <tr key={j.id}><td className="mono small">{j.id}{j.name ? ` · ${j.name}` : ''}</td><td className="num">{j.gpus}</td><td className="num">{fmtN(j.gpuHours, 1)}</td><td className="num">{fmtPct(j.meanSm)}</td><td className="num">{Number.isFinite(j.fbPeakMiB) ? `${(j.fbPeakMiB / 1024).toFixed(0)} GiB` : '—'}</td><td>{CLASS_LABEL[j.cls]}</td></tr>)}</tbody>
+          </table>
+          {jobs.length > 40 && <p className="muted small">and {jobs.length - 40} more jobs in the CSV export.</p>}
+        </>
+      )}
+
+      <h2>{user ? 'Top waste and how to fix it' : 'What would lower next month’s bill'}</h2>
+      {fixes.length === 0 ? <p>No waste worth chasing this month.</p> : <ol className="report-fixes">{fixes.map((j: JobStats) => <li key={j.id}><strong className="mono">{j.id}</strong>{j.name ? ` (${j.name})` : ''}, {j.user}, {j.gpus}× {j.model}, {fmtN(j.gpuHours)} GPU-h. {j.rec.text} <em>{m(Math.max(j.idleCost, j.recoverableGpuHours * j.rate))} recoverable.</em></li>)}</ol>}
+
+      <footer className="report-foot small muted">
+        Charge = allocated GPU-hours × rate, whether or not the GPU did work. Idle = DCGM SM activity below {fmtPct(project.config.idleThreshold)} while allocated. SM activity is DCGM_FI_PROF_SM_ACTIVE{a.smProxy ? ' (GPU utilisation where profiling metrics were not collected, an upper bound)' : ''}. Rates are set by your platform team. {project.sampleId ? 'This statement uses synthetic data.' : ''} Generated with GPU Fleet Report, an independent project not affiliated with NVIDIA.
+      </footer>
+    </div>
   )
 }

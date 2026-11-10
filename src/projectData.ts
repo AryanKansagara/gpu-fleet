@@ -1,44 +1,43 @@
 import { useEffect, useMemo, useState } from 'react'
-import { analyze, applyFixes, DEFAULT_PERSON, detectFixes, escalationRate, periods, slicePeriod, snapshot, type RotaInput } from './engine/analyze.ts'
-import { SAMPLES, generate, sampleConfig } from './engine/sample.ts'
-import type { Config, Incident } from './engine/types.ts'
-import { blankConfig, getData, getDefaults, getProjects, saveProject, useProjects, uuid, type Dataset, type Project } from './store.ts'
+import { analyze, fullWindow, monthWindow, months, snapshot, type Analysis } from './engine/analyze.ts'
+import { jobsFromLabels } from './engine/parse.ts'
+import { generate, SAMPLE_HISTORY, SAMPLE_MONTH, SAMPLES } from './engine/sample.ts'
+import { DEFAULT_CONFIG, type Config } from './engine/types.ts'
+import { blankConfig, getData, getProjects, saveProject, useProjects, uuid, type Dataset, type Project } from './store.ts'
 import { fmtPeriod } from './ui.tsx'
 
-const sampleCache = new Map<string, Incident[]>()
-export function sampleIncidents(id: string): Incident[] | null {
-  const def = SAMPLES.find(s => s.id === id)
-  if (!def) return null
-  if (!sampleCache.has(id)) sampleCache.set(id, generate(def))
-  return sampleCache.get(id)!
+const sampleCache = new Map<string, Dataset>()
+export function sampleData(id: string, month = SAMPLE_MONTH): Dataset | null {
+  if (!SAMPLES.some(s => s.id === id)) return null
+  const k = id + month
+  if (!sampleCache.has(k)) sampleCache.set(k, generate(id, month))
+  return sampleCache.get(k)!
 }
 
 export async function createSampleProject(sampleId: string): Promise<Project> {
   const existing = getProjects().find(p => p.sampleId === sampleId)
   if (existing) return existing
   const def = SAMPLES.find(s => s.id === sampleId)!
-  const list = sampleIncidents(sampleId)!
-  const config = sampleConfig(def)
-  // A closed quarter and two months, so History has something to compare.
-  const snapshots = ['2026-Q3', '2026-09', '2026-10'].map(p => snapshot(list, config, p, uuid(), fmtPeriod(p)))
+  const config: Config = { ...DEFAULT_CONFIG, applied: { ...DEFAULT_CONFIG.applied } }
+  // Two earlier months so History has a trend and something to compare against.
+  const snapshots = [...SAMPLE_HISTORY, SAMPLE_MONTH].map(m => {
+    const d = sampleData(sampleId, m)!
+    return snapshot(analyze(d.fleet!, d.jobs, config), m, uuid(), fmtPeriod(m))
+  })
+  const d = sampleData(sampleId)!
   const now = Date.now()
   return saveProject({
-    id: uuid(), name: def.name, createdAt: now, updatedAt: now, config, snapshots, sampleId,
-    imports: [{ id: uuid(), kind: 'generic-csv', fileName: 'synthetic incidents (Jul to Oct 2026)', rows: list.length, skipped: 0, at: now }],
+    id: uuid(), name: def.name.replace(' (synthetic)', ''), createdAt: now, updatedAt: now, config, snapshots, sampleId,
+    imports: [
+      { id: uuid(), kind: 'prom-json', fileName: 'synthetic DCGM metrics, October 2026', rows: d.fleet!.tracks.length * d.fleet!.n * 4, skipped: 0, at: now },
+      { id: uuid(), kind: def.kind === 'slurm' ? 'sacct' : 'k8s-json', fileName: def.kind === 'slurm' ? 'synthetic sacct, October 2026' : 'synthetic kubectl pods', rows: d.jobs.length, skipped: 0, at: now },
+    ],
   })
 }
 
 export async function createBlankProject(name: string): Promise<Project> {
   const now = Date.now()
   return saveProject({ id: uuid(), name, createdAt: now, updatedAt: now, config: blankConfig(), snapshots: [], imports: [] })
-}
-
-/** Adds anyone who appears in the data but not in the people list, with the team's default timezone. */
-export function withPeople(cfg: Config, list: Incident[]): Config {
-  const missing = [...new Set(list.map(i => i.person))].filter(n => n !== 'Unassigned' && !cfg.people[n])
-  if (!missing.length) return cfg
-  const d = getDefaults()
-  return { ...cfg, people: { ...cfg.people, ...Object.fromEntries(missing.map(n => [n, { ...DEFAULT_PERSON, workStart: d.workStart, workEnd: d.workEnd, tz: cfg.defaultTz }])) } }
 }
 
 export function useProject(id: string) {
@@ -49,8 +48,8 @@ export function useProject(id: string) {
   useEffect(() => {
     if (!project) return
     let live = true
-    if (project.sampleId) { setDs(sampleIncidents(project.sampleId) ?? []); return }
-    void getData(project.id).then(d => { if (live) setDs(d ?? []) })
+    if (project.sampleId) { setDs(sampleData(project.sampleId) ?? { fleet: null, jobs: [] }); return }
+    void getData(project.id).then(d => { if (live) setDs(d ?? { fleet: null, jobs: [] }) })
     return () => { live = false }
   }, [project?.id, project?.sampleId, importsKey])
   const update = (patch: Partial<Project>) => project && saveProject({ ...project, ...patch })
@@ -58,33 +57,28 @@ export function useProject(id: string) {
   return { loading: list === null || (project !== null && ds === null), project, ds, update, setConfig }
 }
 
-/** Everything a project page needs for one period, before and after the applied fixes. */
-export function useAnalysis(ds: Incident[] | null, cfg: Config | undefined, period: string) {
+/** Jobs to analyse: the scheduler export if there is one, else jobs read from metric labels. */
+export const effectiveJobs = (ds: Dataset) => ds.jobs.length ? ds.jobs : ds.fleet ? jobsFromLabels(ds.fleet) : []
+
+export function useAnalysis(ds: Dataset | null, cfg: Config | undefined, period: string): Analysis | null {
   return useMemo(() => {
-    if (!ds || !cfg) return null
-    const sliced = period === 'all' ? { incidents: ds, days: undefined } : slicePeriod(ds, period)
-    const span = sliced.days ? { days: sliced.days } : undefined
-    const fixes = detectFixes(sliced.incidents, cfg, span)
-    const after = applyFixes(sliced.incidents, fixes, cfg.applied)
-    return {
-      incidents: sliced.incidents, span, fixes, after,
-      base: analyze(sliced.incidents, cfg, span),
-      fixed: cfg.applied.length ? analyze(after, cfg, span) : null,
-    }
+    if (!ds?.fleet?.n || !cfg) return null
+    const w = period === 'all' ? fullWindow(ds.fleet) : monthWindow(ds.fleet, period)
+    if (w.b1 <= w.b0) return null
+    return analyze(ds.fleet, effectiveJobs(ds), cfg, w)
   }, [ds, cfg, period])
 }
 
-/** Latest quarter the data fully covers (within a week of its end), else the latest period with data. */
-export function defaultPeriod(ds: Incident[] | null, opts: string[]): string {
-  if (!ds?.length) return 'all'
-  const last = ds.reduce((m, i) => Math.max(m, i.created), 0)
-  const q = opts.find(p => /Q/.test(p) && Date.UTC(+p.slice(0, 4), +p.slice(-1) * 3, 1) - last < 7 * 86400000)
-  return q ?? opts[1] ?? 'all'
-}
+export const periodOptions = (ds: Dataset | null) => ds?.fleet?.n ? [...months(ds.fleet).reverse(), 'all'] : ['all']
 
-export const periodOptions = (ds: Incident[] | null) => ds?.length ? ['all', ...periods(ds, 'quarter').reverse(), ...periods(ds, 'month').reverse()] : ['all']
-
-export function defaultRota(cfg: Config, list: Incident[]): RotaInput {
-  const n = Object.values(cfg.people).filter(p => !p.excluded).length || 4
-  return { mode: 'single', size: n, shiftDays: 7, tz: cfg.defaultTz, regions: [cfg.defaultTz, cfg.defaultTz.startsWith('America') ? 'Europe/London' : 'America/New_York'], escalationRate: Math.round(escalationRate(list) * 100) / 100 }
+/** Latest month with at least two weeks of data, else everything. */
+export function defaultPeriod(ds: Dataset | null): string {
+  if (!ds?.fleet?.n) return 'all'
+  const f = ds.fleet
+  const ms = months(f)
+  for (const m of [...ms].reverse()) {
+    const w = monthWindow(f, m)
+    if ((w.b1 - w.b0) * f.step >= 14 * 86400) return m
+  }
+  return ms.length === 1 ? ms[0] : 'all'
 }

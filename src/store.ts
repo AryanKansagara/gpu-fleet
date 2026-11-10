@@ -1,10 +1,10 @@
 import { useSyncExternalStore } from 'react'
-import type { RotaInput, Snapshot } from './engine/analyze.ts'
-import type { Config, Incident } from './engine/types.ts'
-import type { Format } from './engine/csv.ts'
-import { DEFAULT_POLICY } from './engine/sample.ts'
+import type { Snapshot } from './engine/analyze.ts'
+import type { Format } from './engine/parse.ts'
+import { DEFAULT_CONFIG, type Config, type Fleet, type Job } from './engine/types.ts'
 
-export type Dataset = Incident[]
+/** Raw telemetry and jobs for one project. Lives in IndexedDB; only synced when small. */
+export interface Dataset { fleet: Fleet | null; jobs: Job[] }
 
 export interface ImportMeta {
   id: string
@@ -23,19 +23,17 @@ export interface Project {
   config: Config
   snapshots: Snapshot[]
   imports: ImportMeta[]
-  /** Built-in synthetic account; its data is regenerated instead of stored. */
+  /** Built-in synthetic cluster; its data is regenerated instead of stored. */
   sampleId?: string
-  /** Rotation simulator inputs */
-  rota?: RotaInput
-  /** Compensation: on-call weeks per person when the observed count is wrong */
-  weeks?: Record<string, number>
   /** True when this device has no copy of the raw data (synced from another device). */
   dataMissing?: boolean
+  /** Prometheus URL used in generated scripts. */
+  promUrl?: string
 }
 
 // ---------- Tiny IndexedDB wrapper (falls back to memory in private modes) ----------
 
-const DB = 'oncall-health'
+const DB = 'gpu-fleet'
 let dbp: Promise<IDBDatabase | null> | null = null
 function db(): Promise<IDBDatabase | null> {
   return dbp ??= new Promise(res => {
@@ -133,7 +131,7 @@ export const putData = (id: string, ds: Dataset) => idbPut('data', ds, id)
 export const uuid = () => crypto.randomUUID()
 
 // Tombstones keep a project deleted offline from coming back on the next sync.
-const TOMB = 'oncall-health.tombstones'
+const TOMB = 'gpu-fleet.tombstones'
 export const tombstones = (): string[] => { try { return JSON.parse(localStorage.getItem(TOMB) ?? '[]') } catch { return [] } }
 const addTombstone = (id: string) => localStorage.setItem(TOMB, JSON.stringify([...new Set([...tombstones(), id])]))
 const removeTombstone = (id: string) => localStorage.setItem(TOMB, JSON.stringify(tombstones().filter(x => x !== id)))
@@ -141,16 +139,15 @@ export const clearTombstones = (ids: string[]) => localStorage.setItem(TOMB, JSO
 
 // ---------- App defaults (settings page) ----------
 
-export interface Defaults { tz: string; sleepStart: number; sleepEnd: number; autoResolveMin: number; flapWindowMin: number; workStart: number; workEnd: number }
-const DEF_KEY = 'oncall-health.defaults'
-const localTz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' } catch { return 'UTC' } }
+export interface Defaults { idleThreshold: number; idleTimeoutHours: number; rates: Record<string, number>; defaultRate: number; currency: string; step: number }
+const DEF_KEY = 'gpu-fleet.defaults'
 export function getDefaults(): Defaults {
-  const base: Defaults = { tz: localTz(), sleepStart: 22, sleepEnd: 7, autoResolveMin: 5, flapWindowMin: 60, workStart: 9, workEnd: 17.5 }
+  const base: Defaults = { idleThreshold: DEFAULT_CONFIG.idleThreshold, idleTimeoutHours: DEFAULT_CONFIG.idleTimeoutHours, rates: { ...DEFAULT_CONFIG.rates }, defaultRate: DEFAULT_CONFIG.defaultRate, currency: 'USD', step: 300 }
   try { return { ...base, ...JSON.parse(localStorage.getItem(DEF_KEY) ?? '{}') } } catch { return base }
 }
 export const setDefaults = (d: Defaults) => localStorage.setItem(DEF_KEY, JSON.stringify(d))
 
 export function blankConfig(): Config {
   const d = getDefaults()
-  return { people: {}, defaultTz: d.tz, sleepStart: d.sleepStart, sleepEnd: d.sleepEnd, autoResolveMin: d.autoResolveMin, flapWindowMin: d.flapWindowMin, flapMinFirings: 3, applied: [], policy: { ...DEFAULT_POLICY } }
+  return { ...DEFAULT_CONFIG, idleThreshold: d.idleThreshold, idleTimeoutHours: d.idleTimeoutHours, rates: { ...d.rates }, defaultRate: d.defaultRate, currency: d.currency, applied: { ...DEFAULT_CONFIG.applied } }
 }

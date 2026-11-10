@@ -4,8 +4,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Snapshot } from './engine/analyze.ts'
 import { clearTombstones, getData, getProjects, loadProjects, onProjectChange, putData, saveProject, tombstones, type Dataset, type Project } from './store.ts'
 
-export const APP_ID = 'oncall-health'
-/** Raw incident lists above this stay on the device; people, settings, fixes and snapshots always sync. */
+export const APP_ID = 'gpu-fleet'
+/** Raw telemetry above this stays on the device; settings, rates, imports log and snapshots always sync. */
 export const RAW_SYNC_LIMIT = 1_500_000
 
 const URL_ = import.meta.env.VITE_SUPABASE_URL as string | undefined
@@ -137,7 +137,9 @@ async function doSync() {
       const cloudTime = cp ? Date.parse(cp.updated_at) : 0
       if (lp && (!cp || lp.updatedAt > cloudTime)) {
         const ds = lp.sampleId ? undefined : await getData(id)
-        const raw = ds ? JSON.stringify(ds) : ''
+        // Cheap size estimate first so a month of telemetry is never stringified just to be skipped.
+        const est = ds?.fleet ? ds.fleet.tracks.length * ds.fleet.n * 4 * 6 : 0
+        const raw = ds && est <= RAW_SYNC_LIMIT ? JSON.stringify(ds) : ''
         const { snapshots: _s, dataMissing: _m, ...meta } = lp
         const payload: CloudData = { project: meta, ...(raw && raw.length <= RAW_SYNC_LIMIT ? { dataset: ds } : {}) }
         const { error: e1 } = await c.from('projects').upsert({ id, app: APP_ID, name: lp.name, data: payload, updated_at: new Date(lp.updatedAt).toISOString() })

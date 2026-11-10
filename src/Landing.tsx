@@ -1,90 +1,89 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { analyze, applyFixes, detectFixes, FIX_LABEL, type Fix } from './engine/analyze.ts'
-import { SAMPLES, sampleConfig } from './engine/sample.ts'
-import { BucketBar, BucketLegend, Heatmap, HeatLegend, ScoreRing } from './charts.tsx'
-import { sampleIncidents } from './projectData.ts'
-import { fmtN, Link } from './ui.tsx'
+import { useEffect, useMemo, useState } from 'react'
+import type { Analysis, Heat } from './engine/analyze.ts'
+import { Heatmap, HeatLegend } from './Heatmap.tsx'
+import { Counter, useTween } from './motion.tsx'
+import { fmtPct, Link } from './ui.tsx'
 
-const HERO_PEOPLE = ['Priya Raman', 'Dana Okafor', 'Jun Park']
+interface Demo { a: Analysis; before: Heat; after: Heat }
 
-function useHero() {
-  return useMemo(() => {
-    const def = SAMPLES[0]
-    const list = sampleIncidents(def.id)!
-    const cfg = sampleConfig(def)
-    const fixes = detectFixes(list, cfg)
-    // The strongest fix for each of the three noisiest alerts.
-    const picks: Fix[] = []
-    for (const f of fixes) if (!picks.some(p => p.key === f.key) && picks.length < 3) picks.push(f)
-    const base = analyze(list, cfg)
-    return { list, cfg, fixes, picks, base }
+/** The hero runs the real engine on the synthetic Helix cluster: one week, 64 H100s. */
+function useDemo() {
+  const [demo, setDemo] = useState<Demo | null>(null)
+  useEffect(() => {
+    let live = true
+    const t = setTimeout(async () => {
+      const [{ generate }, { analyze, heatmap, monthWindow }, { DEFAULT_CONFIG }] = await Promise.all([import('./engine/sample.ts'), import('./engine/analyze.ts'), import('./engine/types.ts')])
+      const { fleet, jobs } = generate('helix')
+      const m = monthWindow(fleet, '2026-10')
+      const w = { b0: m.b0 + 7 * 96, b1: m.b0 + 14 * 96 } // 8 to 14 October, 15-minute buckets
+      const a = analyze(fleet, jobs, DEFAULT_CONFIG, w)
+      if (live) setDemo({ a, before: heatmap(fleet, a.sim.before, w, 112), after: heatmap(fleet, a.sim.after, w, 112) })
+    }, 60)
+    return () => { live = false; clearTimeout(t) }
   }, [])
+  return demo
+}
+
+function usePlayhead(run: boolean) {
+  const [p, setP] = useState(0)
+  useEffect(() => {
+    if (!run || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    let raf = 0
+    const start = performance.now()
+    const tick = (now: number) => { setP(((now - start) / 14000) % 1); raf = requestAnimationFrame(tick) }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [run])
+  return p
 }
 
 export function Landing() {
-  const { list, cfg, fixes, picks, base } = useHero()
-  const [on, setOn] = useState<string[]>([])
-  const touched = useRef(false)
-  useEffect(() => {
-    // Show it working once, unless the visitor gets there first.
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    const t = setTimeout(() => { if (!touched.current) setOn([picks[0].id]) }, 2200)
-    return () => clearTimeout(t)
-  }, [picks])
-  // Applying a fix applies every suggestion for that alert key (delay plus dedupe, for example).
-  const applied = useMemo(() => fixes.filter(f => picks.some(p => on.includes(p.id) && p.key === f.key)).map(f => f.id), [on, fixes, picks])
-  const now = useMemo(() => analyze(applyFixes(list, fixes, applied), cfg, { days: base.days }), [applied, list, fixes, cfg, base.days])
-  const person = (a: typeof base, n: string) => a.people.find(p => p.name === n)!
-  const max = Math.max(...HERO_PEOPLE.map(n => Math.max(...person(base, n).heat)))
-  const sleepNow = useTween(now.buckets.sleep / now.months)
-  const priya = person(now, 'Priya Raman')
-  const scoreNow = useTween(priya.score)
-  const pagesNow = useTween(now.total / now.months)
+  const demo = useDemo()
+  const [on, setOn] = useState(false)
+  const t = useTween(on, 1300)
+  const play = usePlayhead(!!demo)
+  // Allocated GPUs at the playhead, before and after policies.
+  const at = useMemo(() => {
+    if (!demo) return null
+    const n = demo.a.sim.allocBefore.length
+    const i = Math.min(n - 1, Math.floor(play * n))
+    return { before: demo.a.sim.allocBefore[i], after: demo.a.sim.allocAfter[i] }
+  }, [demo, play])
 
   return (
     <>
       <section className="hero">
         <div className="hero-inner">
-          <div>
-            <div className="eyebrow">For the quarterly on-call review</div>
-            <h1>See who on-call is <span className="serif">really</span> waking up, then fix the alerts doing it.</h1>
-            <p className="lede">Import a quarter of PagerDuty, Opsgenie or Rootly history. Get each person&rsquo;s sleep, evening and weekend interruptions, a fairness score for the rotation, and a ranked list of alert changes with the pages each one removes.</p>
+          <div className="hero-copy">
+            <div className="eyebrow">For ML platform and infra leads</div>
+            <h1>Your cluster is full. <span className="accent">Your GPUs aren&rsquo;t.</span></h1>
+            <p className="lede">GPU Fleet Report joins DCGM telemetry to Slurm or Kubernetes jobs and shows you, before anyone buys more, which GPUs are allocated but idle, which jobs could run on a MIG slice or fewer GPUs, what each team really costs, and the scheduler policies that win the capacity back.</p>
             <div className="hero-ctas">
-              <Link href="/app?sample=payments" className="btn primary lg">Open the sample team</Link>
-              <Link href="/app" className="btn outline lg">Import your history</Link>
+              <Link href="/app?sample=helix" className="btn primary lg">Try the sample cluster</Link>
+              <Link href="/app" className="btn outline lg">Import your data</Link>
             </div>
-            <p className="hero-note">Runs in your browser. No account needed. Sample teams are synthetic.</p>
+            <p className="hero-note small">Runs in your browser. Nothing is uploaded unless you sign in to sync.</p>
           </div>
-          <div className="pager" aria-label="Live demo on a synthetic payments team">
-            <div className="pager-bar"><i /><i /><i /><strong>Payments platform</strong><span>· synthetic · Jul to Oct 2026 · local time</span></div>
-            <div className="pager-body">
-              <div className="pager-kpis">
-                <div className="kpi-mini"><small>Sleep pages / month</small><b>{fmtN(sleepNow)}{applied.length > 0 && <span className="delta">−{fmtN(base.buckets.sleep / base.months - now.buckets.sleep / now.months)}</span>}</b></div>
-                <div className="kpi-mini"><small>All pages / month</small><b>{fmtN(pagesNow)}</b></div>
-                <div className="kpi-mini row gap-sm"><div className="grow"><small>Priya&rsquo;s risk</small><b>{Math.round(scoreNow)}</b></div><ScoreRing score={priya.score} band={priya.band} /></div>
+          <div className="hero-viz">
+            <div className="viz-head">
+              <div>
+                <div className="viz-title">Helix research cluster <span className="badge synthetic">Synthetic</span></div>
+                <div className="muted tiny">8 nodes × 8 H100 · 8 to 14 Oct 2026 · SM activity per GPU</div>
               </div>
-              {HERO_PEOPLE.map(n => {
-                const p = person(now, n), b = person(base, n)
-                return (
-                  <div className="heat-person" key={n}>
-                    <div className="heat-person-head"><b>{n}</b><span className="muted tab-nums">{fmtN(p.buckets.sleep)} sleep · {fmtN(p.pages)} total</span></div>
-                    <Heatmap heat={p.heat} before={applied.length ? b.heat : undefined} max={max} sleepStart={cfg.sleepStart} sleepEnd={cfg.sleepEnd} label={n} />
-                  </div>
-                )
-              })}
-              <div className="fix-toggles" role="group" aria-label="Suggested alert fixes">
-                {picks.map(f => {
-                  const active = on.includes(f.id)
-                  const removed = new Set(fixes.filter(x => x.key === f.key).flatMap(x => x.removed)).size / base.months
-                  return (
-                    <label key={f.id} className={`fix-toggle${active ? ' on' : ''}`}>
-                      <span className="switch"><input type="checkbox" checked={active} onChange={() => { touched.current = true; setOn(o => active ? o.filter(x => x !== f.id) : [...o, f.id]) }} /><span /></span>
-                      <span className="ft-text"><b>{f.title}</b><small>{FIX_LABEL[f.kind]}</small></span>
-                      <span className="ft-n">−{fmtN(removed)}/mo</span>
-                    </label>
-                  )
-                })}
+              <div className="viz-counter" aria-live="polite">
+                <strong><Counter value={on && demo ? demo.a.sim.freedGpus : 0} /></strong>
+                <span>GPUs freed</span>
               </div>
+            </div>
+            {demo
+              ? <Heatmap before={demo.before} after={demo.after} t={t} playhead={play} height={300} label="Live heatmap: 64 GPUs over one week, coloured by SM activity" />
+              : <div className="viz-skeleton" role="status"><span className="spinner" /> Simulating a week of DCGM telemetry</div>}
+            <div className="viz-foot">
+              <button type="button" className={`btn ${on ? 'outline' : 'primary'} sm`} aria-pressed={on} onClick={() => setOn(!on)} disabled={!demo}>
+                {on ? 'Undo policies' : 'Apply idle timeout + MIG plan'}
+              </button>
+              {at && <span className="small tab-nums">Allocated now: <strong>{on ? at.after : at.before}</strong>/64{on && at.before !== at.after && <span className="accent"> (was {at.before})</span>}</span>}
+              <HeatLegend />
             </div>
           </div>
         </div>
@@ -92,94 +91,67 @@ export function Landing() {
 
       <section className="section">
         <div className="section-head">
-          <div className="eyebrow">What on-call engineers keep saying</div>
-          <h2>The pager problem is rarely the incidents. It is everything else that pages.</h2>
+          <div className="eyebrow">The gap</div>
+          <h2>&ldquo;We need more GPUs&rdquo; usually means &ldquo;our GPUs are booked&rdquo;</h2>
         </div>
-        <div className="quotes">
-          <figure className="quote"><blockquote>&ldquo;Is this normal?&rdquo;</blockquote><p>A sysadmin paged through four channels at once (pager, chat, email and a second chat tool) with a 15-minute response target. The most upvoted advice: one paging channel, and only alerts someone can act on.</p><span className="src">Paraphrased from a popular r/sysadmin thread</span></figure>
-          <figure className="quote"><blockquote>&ldquo;Alert fatigue is out of control.&rdquo;</blockquote><p>The fixes that worked were boring: alert dependencies, escalation delays so transient spikes resolve before anyone wakes, and deleting anything that is not actionable.</p><span className="src">Paraphrased from r/Monitoring</span></figure>
-          <figure className="quote"><blockquote>&ldquo;Four of every five weekends.&rdquo;</blockquote><p>A manager asked how to push back on one engineer being on call almost every weekend. Without numbers on who carries the load, the conversation goes nowhere.</p><span className="src">Paraphrased from r/askmanagers</span></figure>
+        <div className="evidence">
+          <article>
+            <div className="big">{demo ? fmtPct(demo.a.allocShare) : '97%'}</div>
+            <p><strong>allocated</strong> in the Helix sample, the number the scheduler sees.</p>
+          </article>
+          <article>
+            <div className="big accent">{demo ? fmtPct(demo.a.meanSmAllocated) : '47%'}</div>
+            <p><strong>SM active</strong> on those allocated GPUs, the number that matters.</p>
+          </article>
+          <article className="quote">
+            <p>DCGM&rsquo;s GPU utilisation counts the time <em>any</em> kernel is running, so one tiny kernel reads as 100%. SM activity measures the share of streaming multiprocessors actually busy, which is why this report uses it.</p>
+            <a href="https://docs.nvidia.com/datacenter/dcgm/latest/user-guide/feature-overview.html#profiling-metrics" target="_blank" rel="noreferrer" className="small">NVIDIA DCGM user guide, profiling metrics</a>
+          </article>
+          <article className="quote">
+            <p>Published studies of shared training clusters, from Microsoft&rsquo;s Philly analysis to Weights &amp; Biases&rsquo; look at its users&rsquo; runs, keep finding average utilisation well below what the allocation suggests; 30&ndash;50% is a common range, with a long tail of jobs far lower.</p>
+            <span className="small"><a href="https://www.usenix.org/conference/atc19/presentation/jeon" target="_blank" rel="noreferrer">USENIX ATC &rsquo;19</a> · <a href="https://wandb.ai/wandb/common-ml-errors/reports/How-to-Monitor-and-Improve-GPU-Usage-for-Model-Training--VmlldzoxMjQ2MzM2" target="_blank" rel="noreferrer">W&amp;B</a></span>
+          </article>
+          <article className="quote">
+            <p>On r/LocalLLM and r/MachineLearning the same question keeps coming back: how much VRAM does this model really need? The honest answer is weights plus a KV cache that grows with context and batch, which is why so many small services sit on 80 GB cards using a fraction of them.</p>
+            <span className="small"><a href="https://www.reddit.com/r/LocalLLM/search/?q=how%20much%20vram" target="_blank" rel="noreferrer">r/LocalLLM</a> · <a href="https://www.reddit.com/r/MachineLearning/search/?q=kv%20cache%20memory" target="_blank" rel="noreferrer">r/MachineLearning</a> (threads read Nov 2026)</span>
+          </article>
         </div>
       </section>
 
       <section className="section">
         <div className="section-head">
-          <div className="eyebrow">The workflow</div>
-          <h2>From an export to a leadership-ready review in one sitting.</h2>
+          <div className="eyebrow">How it works</div>
+          <h2>From exports to a policy you can merge, in one sitting</h2>
         </div>
+        <ol className="steps">
+          <li><span>01</span><h3>Import</h3><p>A Prometheus range query of DCGM metrics (or nvidia-smi logs), plus sacct or kubectl output. Formats are detected, columns mapped, bad rows listed by line. Big files parse in a worker.</p></li>
+          <li><span>02</span><h3>Join and classify</h3><p>Every job is matched to its GPUs by host, index and time. Each gets mean and p95 SM and tensor activity, peak memory against capacity, idle hours, time at zero and a multi-GPU imbalance score.</p></li>
+          <li><span>03</span><h3>Act</h3><p>Idle-timeout configs for Slurm and Kubernetes, a per-node MIG plan with the exact nvidia-smi commands, team statements, &ldquo;your jobs&rdquo; notes, and a CSV of everything.</p></li>
+        </ol>
+      </section>
+
+      <section className="section">
         <div className="features">
-          {FEATURES.map(f => <article className="feature" key={f.t}><div className="ico" aria-hidden="true">{f.i}</div><h3>{f.t}</h3><p>{f.b}</p></article>)}
+          {[
+            ['Five honest classes', 'Idle or abandoned notebook, under-utilised, memory-bound but compute-light, healthy, saturated. Thresholds are yours to tune.'],
+            ['Right-sizing with MIG', 'Picks the smallest A100, H100, H200 or A30 MIG profile that fits peak memory plus headroom and p95 SM activity, or fewer GPUs for 8-GPU jobs that use 2.'],
+            ['Chargeback that adds up', 'Per-account statements at your $/GPU-hour, on-prem amortised or cloud list, with idle spend called out. Printable.'],
+            ['Recoverable capacity', 'A replay of the month with the policies on, re-packed per node, so "we could free 18 GPUs" is a number you can defend.'],
+            ['Monthly history', 'Snapshot each month, note the policy you shipped, and compare utilisation before and after.'],
+            ['Local first', 'Everything works signed out and stays on the device. Sign in only to sync settings and snapshots.'],
+          ].map(([h, p]) => <article key={h} className="feature"><h3>{h}</h3><p>{p}</p></article>)}
         </div>
       </section>
 
-      <section className="section">
-        <div className="grid-2">
-          <div>
-            <div className="eyebrow">Transparent by design</div>
-            <h2>A burnout-risk score you can defend in the review.</h2>
-            <p className="muted">No black box. Four parts, each capped, computed from the person&rsquo;s own local time and working hours. Every number links back to the pages behind it.</p>
-            <Link href="/docs#score" className="btn ghost">How the score works</Link>
-          </div>
-          <div className="panel tint">
-            <div className="score-steps">
-              <div className="score-step"><b>40</b><p>Sleep interruptions per week, ×10</p></div>
-              <div className="score-step"><b>25</b><p>Consecutive bad nights in a row</p></div>
-              <div className="score-step"><b>20</b><p>Weekend and day-off interruptions</p></div>
-              <div className="score-step"><b>15</b><p>Evening pages per week, ×3</p></div>
-            </div>
-            <hr />
-            <div className="stack-sm">
-              {base.people.slice(0, 4).map(p => (
-                <div key={p.name} className="row gap">
-                  <ScoreRing score={p.score} band={p.band} />
-                  <div className="grow"><div className="row between small"><span>{p.name}</span><span className="muted">{p.pages} pages</span></div><BucketBar buckets={p.buckets} /></div>
-                </div>
-              ))}
-              <BucketLegend />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <div className="cta-band">
+      <section className="cta-band">
         <div className="cta-inner">
-          <div><h2>Bring last quarter&rsquo;s pages.</h2><p>PagerDuty, Opsgenie, Rootly or any CSV. Ten minutes to your first report.</p></div>
-          <div className="row gap wrap"><Link href="/app" className="btn primary lg">Start a review</Link><Link href="/docs" className="btn lg" style={{ color: '#fff', background: '#ffffff1f' }}>Export guides</Link></div>
+          <h2>Find the GPUs you already own.</h2>
+          <div className="row gap wrap">
+            <Link href="/app?sample=atlas" className="btn primary lg">Open the inference sample</Link>
+            <Link href="/docs" className="btn outline lg">Export commands</Link>
+          </div>
         </div>
-      </div>
-      <div className="section" style={{ paddingTop: 30 }}><HeatLegend /></div>
+      </section>
     </>
   )
 }
-
-const ico = (d: string) => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
-const FEATURES = [
-  { t: 'Import what you already have', b: 'PagerDuty CSV or REST API, Opsgenie, Rootly, or any CSV. Format detection, column mapping and a validation report with line numbers.', i: ico('M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2') },
-  { t: 'Load per person, in their hours', b: 'Each person’s timezone and working hours split pages into business hours, evenings, sleep and weekends. Ack and resolve distributions included.', i: ico('M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z') },
-  { t: 'Fairness you can show', b: 'Gini coefficient across the rotation and each person’s share against a fair share. Spot the person quietly absorbing swaps.', i: ico('M3 21h18M6 17V9m6 8V5m6 12v-5') },
-  { t: 'Tune these alerts first', b: 'Flapping, duplicates, auto-resolved blips, never-acked and non-actionable alerts, ranked by the pages per month each change removes.', i: ico('M4 6h16M7 12h10M10 18h4') },
-  { t: 'Rotation simulator', b: 'Team size, shift length, primary and secondary, or follow-the-sun. Projected pages and sleep interruptions per person before you change anything.', i: ico('M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3M18 3v4h-4M6 21v-4h4') },
-  { t: 'Report, pay and history', b: 'A printable quarterly report and CSV for leadership, an editable pay and time-off-in-lieu policy, and snapshots to prove the tuning worked.', i: ico('M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6') },
-]
-
-function useTween(target: number, ms = 650) {
-  const [v, setV] = useState(target)
-  const from = useRef(target)
-  useEffect(() => {
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { setV(target); from.current = target; return }
-    const a = from.current, t0 = performance.now()
-    let raf = 0
-    const step = (t: number) => {
-      const k = Math.min(1, (t - t0) / ms)
-      const e = 1 - (1 - k) ** 3
-      const cur = a + (target - a) * e
-      setV(cur)
-      from.current = cur
-      if (k < 1) raf = requestAnimationFrame(step)
-    }
-    raf = requestAnimationFrame(step)
-    return () => cancelAnimationFrame(raf)
-  }, [target, ms])
-  return v
-}
-

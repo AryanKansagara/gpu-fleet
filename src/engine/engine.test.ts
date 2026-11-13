@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { analyze, heatmap, jobStats, migPlan, monthWindow, months, p95, place, simulate } from './analyze.ts'
 import { migCommands, migGpu, packProfiles, pickProfile } from './mig.ts'
-import { autoMap, detectFormat, expandHostlist, FleetBuilder, gpuClass, gpuMemMiB, jobsFromLabels, mergeFleets, ownerFromLabels, parseCsv, parseElapsed, parseFile, parseIdx, parseTime, parseTres } from './parse.ts'
+import { autoMap, detectFormat, expandHostlist, FleetBuilder, gpuClass, gpuMemMiB, jobsFromLabels, mergeFleets, ownerFromLabels, parseCsv, parseElapsed, parseFile, parseIdx, parseTime, parseTres, shortHost } from './parse.ts'
 import { jobsCsv, migPartedYaml, reaperScript, userNote } from './policy.ts'
 import { generate } from './sample.ts'
 import { DEFAULT_CONFIG, type Fleet, type Job } from './types.ts'
@@ -72,7 +73,7 @@ test('sacct import: skips steps and CPU-only jobs, reports line numbers', () => 
   assert.equal(r.jobs![0].gpus, 16)
   assert.equal(r.jobs![1].end, Date.UTC(2026, 9, 3), 'running job end = start + elapsed')
   assert.ok(r.issues.some(i => i.line === 5 && i.level === 'error'), 'bad start reported on line 5')
-  assert.ok(r.issues.some(i => i.line === 4 && /no GPUs/.test(i.message)))
+  assert.ok(r.issues.some(i => i.line === 0 && /^1 job had no GPUs/.test(i.message)), 'CPU jobs summarised once, not per line')
 })
 
 test('Prometheus range-query JSON: metric names, exported_pod owner, percent and ratio scaling', () => {
@@ -105,7 +106,7 @@ test('nvidia-smi log: host from file name, units stripped, memory total kept', (
   assert.equal(t.host, 'worker7')
   assert.equal(t.memMiB, 23034)
   assert.equal(t.smProxy, true)
-  assert.equal(t.sm.find(Number.isFinite), 0.35)
+  assert.ok(Math.abs(t.sm.find(Number.isFinite)! - 0.35) < 1e-9)
 })
 
 test('kubectl pods JSON: GPU pods only, team label over namespace', () => {
@@ -333,4 +334,102 @@ test('exports: jobs CSV has a row per job, reaper uses the threshold, user note 
   assert.equal(csv.rows[1][16], 'Idle / abandoned')
   assert.match(reaperScript({ cfg, a, interactivePartitions: ['interactive'], notebookNamespaces: [], promUrl: 'http://prom:9090' }), /\[2h\]\)\) < 0.05/)
   assert.match(userNote('lena', a.jobs, 'October 2026', n => '$' + n.toFixed(0)), /1\. j1 \(jupyter\)/)
+})
+
+// ---------- Real export layouts (src/engine/fixtures) ----------
+
+const fixture = (n: string) => readFileSync(new URL(`./fixtures/${n}`, import.meta.url), 'utf8')
+
+test('dcgm-exporter /metrics scrape (real NVIDIA capture): detected, lowercase hostname, throttle counters not read as watts', () => {
+  const r = parseFile(fixture('dcgm-k8s-scrape.prom'), { now: T0, step: 60 })
+  assert.equal(r.format, 'prom-text')
+  assert.equal(r.fleet!.tracks.length, 1)
+  const t = r.fleet!.tracks[0]
+  assert.equal(t.host, 'node-a')
+  assert.equal(t.power[0], 418.36, 'DCGM_FI_DEV_POWER_VIOLATION (0 us) must not be averaged into power')
+  assert.equal(t.memMiB, 285247, 'capacity from FB_USED + FB_FREE')
+  assert.equal(t.smProxy, undefined, 'PROF_SM_ACTIVE present')
+  assert.equal(r.fleet!.t0, T0, 'scrape without timestamps lands at `now`')
+})
+
+test('dcgm-exporter 4.9 names: _BYTES to MiB, _RATIO kept, SM_UTIL_RATIO is SM activity, comment timestamps split scrapes', () => {
+  const r = parseFile(fixture('dcgm-exporter-4.9.prom'), { step: 60 })
+  assert.equal(r.format, 'prom-text')
+  const t = r.fleet!.tracks[0]
+  assert.equal(t.host, 'dgx-b200-07.ml.example.net')
+  assert.equal(r.fleet!.n, 2)
+  assert.equal(r.fleet!.t0, Date.UTC(2026, 10, 12, 10))
+  assert.deepEqual(t.sm, [0.31, 0.29])
+  assert.equal(t.fb[0], 20480, '21474836480 bytes = 20480 MiB')
+  assert.equal(Math.round(t.memMiB!), 182606, 'FB_CAPACITY_BYTES, not RESERVED')
+  assert.deepEqual(t.power, [512.4, 498], 'energy counter ignored')
+  assert.equal(t.owner[0], '88123')
+  assert.equal(migGpu(t.model, t.memMiB)!.label, 'B200 180GB')
+})
+
+test('percent utilisation is scaled per column, so an idle GPU at 1 % is not read as 100 %', () => {
+  const r = parseFile(fixture('nvidia-smi-noindex.csv'), { fileName: 'smi-asr-box.csv', step: 60 })
+  const t = r.fleet!.tracks[0]
+  assert.ok(t.sm[0] < 0.02, `first minute averages 0-1 %, got ${t.sm[0]}`)
+  const body = { status: 'success', data: { resultType: 'matrix', result: [
+    { metric: { __name__: 'DCGM_FI_DEV_GPU_UTIL', gpu: '0', Hostname: 'n1' }, values: [[1790000000, '1'], [1790000060, '0']] },
+  ] } }
+  const p = parseFile(JSON.stringify(body), { step: 300 })
+  assert.equal(p.fleet!.tracks[0].sm[0], 0.005)
+})
+
+test('nvidia-smi log without an index column reads as GPU 0 with a warning', () => {
+  const r = parseFile(fixture('nvidia-smi-noindex.csv'), { fileName: 'smi-asr-box.csv', step: 60 })
+  assert.equal(r.format, 'nvidia-smi')
+  assert.equal(r.ok, 6)
+  assert.equal(r.fleet!.tracks[0].key, 'asr-box:0')
+  assert.ok(r.issues.some(i => /single-GPU/.test(i.message)))
+})
+
+test('sacct -P with steps, array, het and pending jobs: one row per GPU allocation', () => {
+  const r = parseFile(fixture('sacct-mixed.psv'), { now: Date.UTC(2026, 10, 12, 12) })
+  assert.equal(r.format, 'sacct')
+  assert.deepEqual(r.jobs!.map(j => j.id), ['88120', '88121_3', '88122', '88123+0'])
+  assert.equal(r.jobs![0].gpus, 16)
+  assert.equal(r.jobs![0].model, 'h100')
+  assert.equal(r.jobs![2].end - r.jobs![2].start, 27 * H, 'running job: start + elapsed')
+  assert.equal(r.issues.filter(i => i.level === 'error').length, 0, 'pending job is not an error')
+  assert.ok(r.issues.some(i => /^2 jobs had no GPUs/.test(i.message)))
+})
+
+test('naive sacct times can be read in local time', () => {
+  const utc = parseTime('2026-11-10T08:00:00')
+  assert.equal(parseTime('2026-11-10T08:00:00', true), new Date(2026, 10, 10, 8).getTime())
+  assert.equal(parseTime('2026-11-10T08:00:00Z', true), utc, 'explicit zone wins')
+})
+
+test('AllocGRES and kubectl custom-columns GPU values', () => {
+  assert.deepEqual(parseTres('gpu:a100:2'), { gpus: 2, model: 'a100' })
+  assert.deepEqual(parseTres('gpu:4'), { gpus: 4, model: undefined })
+  assert.equal(parseTres('1,<none>,2').gpus, 3)
+  assert.equal(parseTres('<none>').gpus, 0)
+})
+
+test('jobs on short Slurm node names join to FQDN DCGM hosts', () => {
+  assert.equal(shortHost('lyris0073.lyris.clusters.nvidia.com'), 'lyris0073')
+  assert.equal(shortHost('10.0.0.5'), '10.0.0.5')
+  const f = fleetOf(2, 4, () => 0.5, undefined, 'gpu01.cluster.local')
+  const [p] = place(f, [job({ hosts: ['gpu01'], gpus: 1, end: T0 + 4 * H })])
+  assert.deepEqual(p.missingHosts, [])
+  assert.equal(p.cells.length, 1)
+})
+
+test('kubectl pods: init container GPUs are max(init, sum of containers), not added', () => {
+  const pod = { metadata: { name: 'x', namespace: 'ml' }, spec: { nodeName: 'n1', initContainers: [{ resources: { limits: { 'nvidia.com/gpu': '1' } } }], containers: [{ resources: { limits: { 'nvidia.com/gpu': '2' } } }] }, status: { startTime: '2026-10-01T00:00:00Z' } }
+  const r = parseFile(JSON.stringify({ items: [pod] }), { now: T0 + H })
+  assert.equal(r.jobs![0].gpus, 2)
+})
+
+test('MIG table: Blackwell, GH200 and RTX PRO 6000 profiles', () => {
+  assert.equal(migGpu('NVIDIA GB200')!.label, 'GB200 186GB')
+  assert.equal(migGpu('NVIDIA GH200 480GB', 97871)!.label, 'H100 96GB (GH200)')
+  assert.equal(pickProfile(migGpu('NVIDIA B200')!, 30000, 0.1, 0.15)!.name, '1g.45gb', '30 GB + headroom is over 23 GB')
+  const rtx = migGpu('NVIDIA RTX PRO 6000 Blackwell Server Edition')!
+  assert.deepEqual(packProfiles(rtx, ['2g.48gb', '1g.24gb', '1g.24gb', '1g.24gb']), [['2g.48gb', '1g.24gb', '1g.24gb'], ['1g.24gb']])
+  assert.equal(gpuClass('NVIDIA GH200 480GB'), 'GH200')
 })

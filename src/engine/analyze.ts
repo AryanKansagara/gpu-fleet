@@ -1,5 +1,5 @@
 import { migGpu, packProfiles, pickProfile } from './mig.ts'
-import { gpuClass, gpuMemMiB } from './parse.ts'
+import { gpuClass, gpuMemMiB, shortHost } from './parse.ts'
 import type { Config, Fleet, GpuTrack, Job, JobClass } from './types.ts'
 
 export const CLASS_LABEL: Record<JobClass, string> = {
@@ -50,7 +50,10 @@ export interface Placement {
 export function place(f: Fleet, jobs: Job[]): Placement[] {
   const ms = f.step * 1000
   const byHost = new Map<string, number[]>()
-  f.tracks.forEach((t, i) => { const l = byHost.get(t.host) ?? []; l.push(i); byHost.set(t.host, l) })
+  const byShort = new Map<string, number[]>()
+  f.tracks.forEach((t, i) => {
+    for (const [m, k] of [[byHost, t.host], [byShort, shortHost(t.host)]] as const) { const l = m.get(k) ?? []; l.push(i); m.set(k, l) }
+  })
   const busyUntil = new Map<number, number>() // track -> bucket where its current inferred holder ends
   const out: Placement[] = []
   for (const job of [...jobs].sort((a, b) => a.start - b.start || a.id.localeCompare(b.id))) {
@@ -61,7 +64,8 @@ export function place(f: Fleet, jobs: Job[]): Placement[] {
     if (b1 <= b0) continue
     const perHost = Math.max(1, Math.round(job.gpus / job.hosts.length))
     for (const h of job.hosts) {
-      const idxs = byHost.get(h)
+      // DCGM often reports the FQDN (Hostname label) while Slurm and Kubernetes use the short name.
+      const idxs = byHost.get(h) ?? byShort.get(shortHost(h))
       if (!idxs) { p.missingHosts.push(h); continue }
       let chosen: number[] = []
       const known = job.gpuIdx?.[h]

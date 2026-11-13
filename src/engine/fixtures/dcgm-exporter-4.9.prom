@@ -1,0 +1,20 @@
+# Two scrapes of dcgm-exporter 4.9 (DCGM 4.7 field names and units), appended by:
+#   while sleep 60; do echo "# $(date -u +%FT%TZ)"; curl -s localhost:9400/metrics; done >> scrapes.prom
+# Layout matches etc/default-counters.csv in NVIDIA/dcgm-exporter 4.9.0. Values are synthetic.
+# 2026-11-12T10:00:00Z
+# HELP DCGM_FI_DEV_GPU_UTIL_RATIO GPU utilization as a ratio.
+# TYPE DCGM_FI_DEV_GPU_UTIL_RATIO gauge
+DCGM_FI_DEV_GPU_UTIL_RATIO{gpu="0",UUID="GPU-5d1c0e7a-0001",pci_bus_id="00000000:18:00.0",device="nvidia0",modelName="NVIDIA B200",hostname="dgx-b200-07.ml.example.net",DCGM_FI_SYSTEM_DRIVER_VERSION="580.95.05",hpc_job="88123"} 0.97
+DCGM_FI_PROF_SM_UTIL_RATIO{gpu="0",UUID="GPU-5d1c0e7a-0001",pci_bus_id="00000000:18:00.0",device="nvidia0",modelName="NVIDIA B200",hostname="dgx-b200-07.ml.example.net",DCGM_FI_SYSTEM_DRIVER_VERSION="580.95.05",hpc_job="88123"} 0.31
+DCGM_FI_PROF_TENSOR_UTIL_RATIO{gpu="0",UUID="GPU-5d1c0e7a-0001",pci_bus_id="00000000:18:00.0",device="nvidia0",modelName="NVIDIA B200",hostname="dgx-b200-07.ml.example.net",DCGM_FI_SYSTEM_DRIVER_VERSION="580.95.05",hpc_job="88123"} 0.12
+DCGM_FI_DEV_FB_USED_BYTES{gpu="0",UUID="GPU-5d1c0e7a-0001",pci_bus_id="00000000:18:00.0",device="nvidia0",modelName="NVIDIA B200",hostname="dgx-b200-07.ml.example.net",DCGM_FI_SYSTEM_DRIVER_VERSION="580.95.05",hpc_job="88123"} 21474836480
+DCGM_FI_DEV_FB_CAPACITY_BYTES{gpu="0",UUID="GPU-5d1c0e7a-0001",pci_bus_id="00000000:18:00.0",device="nvidia0",modelName="NVIDIA B200",hostname="dgx-b200-07.ml.example.net",DCGM_FI_SYSTEM_DRIVER_VERSION="580.95.05"} 191476301824
+DCGM_FI_DEV_FB_RESERVED_BYTES{gpu="0",UUID="GPU-5d1c0e7a-0001",pci_bus_id="00000000:18:00.0",device="nvidia0",modelName="NVIDIA B200",hostname="dgx-b200-07.ml.example.net",DCGM_FI_SYSTEM_DRIVER_VERSION="580.95.05"} 1106247680
+DCGM_FI_DEV_BOARD_POWER_WATTS{gpu="0",UUID="GPU-5d1c0e7a-0001",pci_bus_id="00000000:18:00.0",device="nvidia0",modelName="NVIDIA B200",hostname="dgx-b200-07.ml.example.net",DCGM_FI_SYSTEM_DRIVER_VERSION="580.95.05"} 512.4
+DCGM_FI_DEV_GPU_ENERGY_JOULES_TOTAL{gpu="0",UUID="GPU-5d1c0e7a-0001",pci_bus_id="00000000:18:00.0",device="nvidia0",modelName="NVIDIA B200",hostname="dgx-b200-07.ml.example.net",DCGM_FI_SYSTEM_DRIVER_VERSION="580.95.05"} 9.1824e+08
+# 2026-11-12T10:01:00Z
+DCGM_FI_DEV_GPU_UTIL_RATIO{gpu="0",UUID="GPU-5d1c0e7a-0001",pci_bus_id="00000000:18:00.0",device="nvidia0",modelName="NVIDIA B200",hostname="dgx-b200-07.ml.example.net",DCGM_FI_SYSTEM_DRIVER_VERSION="580.95.05",hpc_job="88123"} 1
+DCGM_FI_PROF_SM_UTIL_RATIO{gpu="0",UUID="GPU-5d1c0e7a-0001",pci_bus_id="00000000:18:00.0",device="nvidia0",modelName="NVIDIA B200",hostname="dgx-b200-07.ml.example.net",DCGM_FI_SYSTEM_DRIVER_VERSION="580.95.05",hpc_job="88123"} 0.29
+DCGM_FI_PROF_TENSOR_UTIL_RATIO{gpu="0",UUID="GPU-5d1c0e7a-0001",pci_bus_id="00000000:18:00.0",device="nvidia0",modelName="NVIDIA B200",hostname="dgx-b200-07.ml.example.net",DCGM_FI_SYSTEM_DRIVER_VERSION="580.95.05",hpc_job="88123"} 0.1
+DCGM_FI_DEV_FB_USED_BYTES{gpu="0",UUID="GPU-5d1c0e7a-0001",pci_bus_id="00000000:18:00.0",device="nvidia0",modelName="NVIDIA B200",hostname="dgx-b200-07.ml.example.net",DCGM_FI_SYSTEM_DRIVER_VERSION="580.95.05",hpc_job="88123"} 22548578304
+DCGM_FI_DEV_BOARD_POWER_WATTS{gpu="0",UUID="GPU-5d1c0e7a-0001",pci_bus_id="00000000:18:00.0",device="nvidia0",modelName="NVIDIA B200",hostname="dgx-b200-07.ml.example.net",DCGM_FI_SYSTEM_DRIVER_VERSION="580.95.05"} 498.0

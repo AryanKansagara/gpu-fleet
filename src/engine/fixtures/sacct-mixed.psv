@@ -1,0 +1,11 @@
+JobID|JobName|User|Account|Partition|State|Start|End|Elapsed|NNodes|NodeList|AllocTRES
+88120|llama-ft|ann|vision|gpu|COMPLETED|2026-11-10T08:00:00|2026-11-10T14:30:00|06:30:00|2|dgx[01-02]|billing=128,cpu=128,gres/gpu:h100=16,gres/gpu=16,mem=1000G,node=2
+88120.batch|batch||vision||COMPLETED|2026-11-10T08:00:00|2026-11-10T14:30:00|06:30:00|1|dgx01|cpu=64,gres/gpu:h100=8,gres/gpu=8,mem=500G,node=1
+88120.extern|extern||vision||COMPLETED|2026-11-10T08:00:00|2026-11-10T14:30:00|06:30:00|2|dgx[01-02]|billing=128,cpu=128,gres/gpu:h100=16,gres/gpu=16,mem=1000G,node=2
+88120.0|torchrun||vision||COMPLETED|2026-11-10T08:00:05|2026-11-10T14:29:58|06:29:53|2|dgx[01-02]|cpu=128,gres/gpu:h100=16,gres/gpu=16,mem=1000G,node=2
+88121_3|sweep|bo|nlp|gpu|CANCELLED by 51234|2026-11-10T09:00:00|2026-11-10T09:45:00|00:45:00|1|dgx03|billing=16,cpu=16,gres/gpu:h100=1,gres/gpu=1,mem=120G,node=1
+88122|notebook|cat|nlp|interactive|RUNNING|2026-11-11T07:00:00|Unknown|1-03:00:00|1|dgx03|billing=8,cpu=8,gres/gpu:h100=1,gres/gpu=1,mem=64G,node=1
+88122.interactive|interactive||nlp||RUNNING|2026-11-11T07:00:00|Unknown|1-03:00:00|1|dgx03|cpu=8,gres/gpu:h100=1,gres/gpu=1,mem=64G,node=1
+88123+0|het-train|dee|speech|gpu|COMPLETED|2026-11-11T00:00:00|2026-11-11T02:00:00|02:00:00|1|dgx04|billing=32,cpu=32,gres/gpu=4,mem=400G,node=1
+88124|preprocess|ann|vision|cpu|COMPLETED|2026-11-10T06:00:00|2026-11-10T07:00:00|01:00:00|1|cpu07|billing=32,cpu=32,mem=128G,node=1
+88125|queued|bo|nlp|gpu|PENDING|Unknown|Unknown|00:00:00|0|None assigned|

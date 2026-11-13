@@ -1,0 +1,12 @@
+# Excerpt (GPU 0) from NVIDIA/k8s-test-infra tests/hardware-captures/vr-nvl72/cluster/dcgm-nvidia-dcgm-exporter-xzgsb.txt, Apache-2.0.
+DCGM_FI_DEV_BOARD_LIMIT_VIOLATION{gpu="0",UUID="GPU-00000000-0000-0000-0000-000000000000",pci_bus_id="00000002:81:00.0",device="nvidia0",modelName="NVIDIA Graphics Device",hostname="node-a",DCGM_FI_DRIVER_VERSION="615.71.09"} 0
+DCGM_FI_DEV_DEC_UTIL{gpu="0",UUID="GPU-00000000-0000-0000-0000-000000000000",pci_bus_id="00000002:81:00.0",device="nvidia0",modelName="NVIDIA Graphics Device",hostname="node-a",DCGM_FI_DRIVER_VERSION="615.71.09"} 0
+DCGM_FI_DEV_FB_FREE{gpu="0",UUID="GPU-00000000-0000-0000-0000-000000000000",pci_bus_id="00000002:81:00.0",device="nvidia0",modelName="NVIDIA Graphics Device",hostname="node-a",DCGM_FI_DRIVER_VERSION="615.71.09"} 285247
+DCGM_FI_DEV_FB_USED{gpu="0",UUID="GPU-00000000-0000-0000-0000-000000000000",pci_bus_id="00000002:81:00.0",device="nvidia0",modelName="NVIDIA Graphics Device",hostname="node-a",DCGM_FI_DRIVER_VERSION="615.71.09"} 0
+DCGM_FI_DEV_GPU_UTIL{gpu="0",UUID="GPU-00000000-0000-0000-0000-000000000000",pci_bus_id="00000002:81:00.0",device="nvidia0",modelName="NVIDIA Graphics Device",hostname="node-a",DCGM_FI_DRIVER_VERSION="615.71.09"} 0
+DCGM_FI_DEV_MEM_COPY_UTIL{gpu="0",UUID="GPU-00000000-0000-0000-0000-000000000000",pci_bus_id="00000002:81:00.0",device="nvidia0",modelName="NVIDIA Graphics Device",hostname="node-a",DCGM_FI_DRIVER_VERSION="615.71.09"} 0
+DCGM_FI_DEV_POWER_USAGE{gpu="0",UUID="GPU-00000000-0000-0000-0000-000000000000",pci_bus_id="00000002:81:00.0",device="nvidia0",modelName="NVIDIA Graphics Device",hostname="node-a",DCGM_FI_DRIVER_VERSION="615.71.09"} 418.36
+DCGM_FI_DEV_POWER_VIOLATION{gpu="0",UUID="GPU-00000000-0000-0000-0000-000000000000",pci_bus_id="00000002:81:00.0",device="nvidia0",modelName="NVIDIA Graphics Device",hostname="node-a",DCGM_FI_DRIVER_VERSION="615.71.09"} 0
+DCGM_FI_PROF_DRAM_ACTIVE{gpu="0",UUID="GPU-00000000-0000-0000-0000-000000000000",pci_bus_id="00000002:81:00.0",device="nvidia0",modelName="NVIDIA Graphics Device",hostname="node-a",DCGM_FI_DRIVER_VERSION="615.71.09"} 0
+DCGM_FI_PROF_PIPE_TENSOR_ACTIVE{gpu="0",UUID="GPU-00000000-0000-0000-0000-000000000000",pci_bus_id="00000002:81:00.0",device="nvidia0",modelName="NVIDIA Graphics Device",hostname="node-a",DCGM_FI_DRIVER_VERSION="615.71.09"} 0
+DCGM_FI_PROF_SM_ACTIVE{gpu="0",UUID="GPU-00000000-0000-0000-0000-000000000000",pci_bus_id="00000002:81:00.0",device="nvidia0",modelName="NVIDIA Graphics Device",hostname="node-a",DCGM_FI_DRIVER_VERSION="615.71.09"} 0

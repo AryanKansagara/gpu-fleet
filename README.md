@@ -2,7 +2,7 @@
 
 Shows ML platform teams how their GPUs are actually used: allocated-but-idle GPUs, memory headroom, jobs that should run on a MIG slice or fewer GPUs, per-team chargeback, and the scheduler policies that recover capacity. Built for the infra lead who keeps hearing "we need more GPUs".
 
-**Live:** https://gpu-fleet.vercel.app
+**Live:** https://gpu-fleet-six.vercel.app
 
 ## The pain
 

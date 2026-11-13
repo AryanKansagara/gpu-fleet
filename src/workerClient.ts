@@ -26,5 +26,5 @@ const call = <T,>(msg: Record<string, unknown>) => new Promise<T>((res, rej) => 
   worker().postMessage({ ...msg, id })
 })
 
-export const parseInWorker = (o: { text: string; fileName: string; format?: Format; map?: Mapping; hostDefault?: string; step: number }) => call<ParseResult>({ type: 'parse', ...o })
+export const parseInWorker = (o: { text: string; fileName: string; format?: Format; map?: Mapping; hostDefault?: string; step: number; localTime?: boolean }) => call<ParseResult>({ type: 'parse', ...o })
 export const mergeInWorker = (a: Fleet | null, b: Fleet) => call<Fleet>({ type: 'merge', a, b })

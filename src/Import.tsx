@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { FORMATS, JOB_FIELDS, mergeJobs, METRIC_FIELDS, toCsv, type Format } from './engine/parse.ts'
+import { FORMATS, hostFromFileName, JOB_FIELDS, mergeJobs, METRIC_FIELDS, toCsv, type Format } from './engine/parse.ts'
 import type { Config } from './engine/types.ts'
 import { createBlankProject } from './projectData.ts'
 import { getDefaults, putData, saveProject, uuid, type Dataset, type Project } from './store.ts'
@@ -7,7 +7,8 @@ import { RAW_SYNC_LIMIT, useSync } from './sync.ts'
 import { ask, download, go, Link, toast } from './ui.tsx'
 import { mergeInWorker, parseInWorker, type ParseResult } from './workerClient.ts'
 
-interface Pending { id: string; name: string; text: string; r: ParseResult; hostDefault: string; busy?: boolean }
+interface Pending { id: string; name: string; text: string; r: ParseResult; hostDefault: string; localTime: boolean; busy?: boolean }
+type Patch = Partial<{ format: Format; map: Record<string, number>; hostDefault: string; localTime: boolean }>
 
 const STEPS = [[60, '1 minute'], [300, '5 minutes'], [900, '15 minutes'], [3600, '1 hour']] as const
 
@@ -26,17 +27,18 @@ export default function DataTab({ project, ds, update }: { project: Project; ds:
       try {
         const text = await f.text()
         const r = await parseInWorker({ text, fileName: f.name, step })
-        setPending(p => [...p, { id: uuid(), name: f.name, text, r, hostDefault: '' }])
+        setPending(p => [...p, { id: uuid(), name: f.name, text, r, hostDefault: '', localTime: false }])
       } catch (e) { toast(`${f.name}: ${e instanceof Error ? e.message : 'could not be read'}`, { tone: 'error' }) }
     }
     setBusy(null)
   }
 
-  const reparse = async (p: Pending, patch: Partial<{ format: Format; map: Record<string, number>; hostDefault: string }>) => {
-    setPending(x => x.map(y => y.id === p.id ? { ...y, busy: true, hostDefault: patch.hostDefault ?? y.hostDefault } : y))
+  const reparse = async (p: Pending, patch: Patch) => {
+    const localTime = patch.localTime ?? p.localTime
+    setPending(x => x.map(y => y.id === p.id ? { ...y, busy: true, hostDefault: patch.hostDefault ?? y.hostDefault, localTime } : y))
     try {
       const format = patch.format ?? p.r.format
-      const r = await parseInWorker({ text: p.text, fileName: p.name, format, map: patch.format ? undefined : patch.map ?? p.r.map, hostDefault: patch.hostDefault ?? p.hostDefault, step })
+      const r = await parseInWorker({ text: p.text, fileName: p.name, format, map: patch.format ? undefined : patch.map ?? p.r.map, hostDefault: patch.hostDefault ?? p.hostDefault, step, localTime })
       setPending(x => x.map(y => y.id === p.id ? { ...y, r, busy: false } : y))
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Parse failed', { tone: 'error' })
@@ -95,9 +97,9 @@ export default function DataTab({ project, ds, update }: { project: Project; ds:
           onDragOver={e => { e.preventDefault(); setDrag(true) }} onDragLeave={() => setDrag(false)}
           onDrop={e => { e.preventDefault(); setDrag(false); void readFiles(e.dataTransfer.files) }}>
           <h3>{busy ?? 'Drop exports here, or click to choose'}</h3>
-          <p className="muted small" style={{ margin: 0 }}>Prometheus range-query JSON or CSV · nvidia-smi CSV logs · sacct -P output · kubectl pods JSON or custom-columns · any jobs CSV. Parsed in a background worker; nothing is uploaded.</p>
+          <p className="muted small" style={{ margin: 0 }}>Prometheus range-query JSON or CSV · dcgm-exporter /metrics scrapes · nvidia-smi CSV logs · sacct -P output · kubectl pods JSON or custom-columns · any jobs CSV. Parsed in a background worker; nothing is uploaded.</p>
           {busy && <span className="spinner" aria-hidden="true" />}
-          <input ref={input} type="file" accept=".csv,.tsv,.txt,.json,.log,.out" multiple hidden onChange={e => { if (e.target.files) void readFiles(e.target.files); e.target.value = '' }} />
+          <input ref={input} type="file" accept=".csv,.tsv,.txt,.json,.log,.out,.prom,.psv" multiple hidden onChange={e => { if (e.target.files) void readFiles(e.target.files); e.target.value = '' }} />
         </div>
       </div>
 
@@ -137,11 +139,11 @@ function jobsToCsv(ds: Dataset) {
     ...ds.jobs.map(j => [j.id, j.name ?? '', j.user, j.account, j.partition ?? '', j.state ?? '', iso(j.start), iso(j.end), j.gpus, j.hosts.join(','), j.gpuIdx ? Object.values(j.gpuIdx)[0].join(',') : ''])])
 }
 
-function PendingFile({ p, onReparse, onCancel, onCommit, disabled }: { p: Pending; onReparse(patch: Partial<{ format: Format; map: Record<string, number>; hostDefault: string }>): void; onCancel(): void; onCommit(): void; disabled: boolean }) {
+function PendingFile({ p, onReparse, onCancel, onCommit, disabled }: { p: Pending; onReparse(patch: Patch): void; onCancel(): void; onCommit(): void; disabled: boolean }) {
   const r = p.r
   const fields = r.schema === 'metrics' ? METRIC_FIELDS : JOB_FIELDS
   const errors = r.issues.filter(i => i.level === 'error')
-  const csvLike = r.format !== 'prom-json' && r.format !== 'k8s-json'
+  const csvLike = r.format !== 'prom-json' && r.format !== 'prom-text' && r.format !== 'k8s-json'
   const needsHost = r.schema === 'metrics' && csvLike && r.map.host === undefined
   const fleet = r.fleet
   return (
@@ -159,20 +161,26 @@ function PendingFile({ p, onReparse, onCancel, onCommit, disabled }: { p: Pendin
           <h3 className="small strong">Column mapping</h3>
           <div className="map-grid">
             {fields.map(f => (
-              <label key={f.key} className="field"><span>{f.label}{f.required ? ' *' : ''}</span>
+              <label key={f.key} className="field"><span>{f.label}{f.required && !(f.key === 'gpu' && r.format === 'nvidia-smi') ? ' *' : ''}</span>
                 <select value={r.map[f.key] ?? ''} onChange={e => { const map = { ...r.map }; if (e.target.value === '') delete map[f.key]; else map[f.key] = Number(e.target.value); onReparse({ map }) }}>
                   <option value="">Not mapped</option>
                   {r.headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
                 </select>
               </label>
             ))}
-            {needsHost && <label className="field"><span>Host for this log *</span><input defaultValue={p.hostDefault} placeholder="gpu-node-01" onBlur={e => onReparse({ hostDefault: e.target.value.trim() })} /></label>}
+            {needsHost && <label className="field"><span>Host for this log *</span><input defaultValue={p.hostDefault} placeholder={r.format === 'nvidia-smi' ? `${hostFromFileName(p.name)} (from file name)` : 'gpu-node-01'} onBlur={e => onReparse({ hostDefault: e.target.value.trim() })} /></label>}
+            <label className="field"><span>Times without a zone are in</span>
+              <select value={p.localTime ? 'local' : 'utc'} onChange={e => onReparse({ localTime: e.target.value === 'local' })}>
+                <option value="utc">UTC (sacct run with TZ=UTC)</option>
+                <option value="local">This browser&rsquo;s zone ({Intl.DateTimeFormat().resolvedOptions().timeZone})</option>
+              </select>
+            </label>
           </div>
         </>
       )}
       <h3 className="small strong" style={{ marginTop: 8 }}>Validation {p.busy && <span className="spinner sm" aria-label="Re-checking" />}</h3>
       <p className="small">
-        <strong className="good-text">{r.ok.toLocaleString()} {r.schema === 'jobs' ? 'jobs' : 'samples'} ready</strong> of {r.total.toLocaleString()} {r.format === 'prom-json' ? 'values' : r.format === 'k8s-json' ? 'pods' : 'rows'}
+        <strong className="good-text">{r.ok.toLocaleString()} {r.schema === 'jobs' ? 'jobs' : 'samples'} ready</strong> of {r.total.toLocaleString()} {r.format === 'prom-json' || r.format === 'prom-text' ? 'values' : r.format === 'k8s-json' ? 'pods' : 'rows'}
         {r.skipped > 0 && <>, <strong className="error">{r.skipped.toLocaleString()} skipped</strong></>}
         {r.issues.length > errors.length && <>, {r.issues.length - errors.length} warnings</>}.
         {fleet?.n ? <> {fleet.tracks.length} GPUs on {new Set(fleet.tracks.map(t => t.host)).size} hosts, {new Date(fleet.t0).toISOString().slice(0, 16).replace('T', ' ')} to {new Date(fleet.t0 + fleet.n * fleet.step * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC.</> : null}
@@ -180,7 +188,7 @@ function PendingFile({ p, onReparse, onCancel, onCommit, disabled }: { p: Pendin
       </p>
       {r.issues.length > 0 && (
         <div className="issues" role="log" aria-label="Validation issues">
-          {r.issues.slice(0, 200).map((i, k) => <div key={k} className={i.level === 'error' ? 'error-row' : ''}><span className="ln">{i.line === 0 ? 'file' : r.format === 'prom-json' ? `series ${i.line}` : r.format === 'k8s-json' ? `pod ${i.line}` : `line ${i.line}`}</span><span>{i.message}</span></div>)}
+          {r.issues.slice(0, 200).map((i, k) => <div key={k} className={i.level === 'error' ? 'error-row' : ''}><span className="ln">{i.line === 0 ? 'file' : r.format === 'prom-json' ? `series ${i.line}` : r.format === 'prom-text' ? (i.message.startsWith('Series') ? `series ${i.line}` : `line ${i.line}`) : r.format === 'k8s-json' ? `pod ${i.line}` : `line ${i.line}`}</span><span>{i.message}</span></div>)}
           {r.issues.length > 200 && <div><span className="ln" /><span className="muted">and {r.issues.length - 200} more</span></div>}
         </div>
       )}

@@ -10,7 +10,7 @@ Schedulers report a cluster as full when every GPU is allocated, not when every 
 
 ## Features
 
-- **Import** DCGM metrics from a Prometheus range query (JSON or CSV, long or wide), `nvidia-smi --query-gpu` logs, Slurm `sacct -P`, `kubectl get pods -o json` or custom-columns, or any jobs CSV. Format detection, column mapping and a validation report with line numbers. Large files parse in a Web Worker.
+- **Import** DCGM metrics from a Prometheus range query (JSON or CSV, long or wide), raw dcgm-exporter `/metrics` scrapes (single or appended with time stamps), `nvidia-smi --query-gpu` logs, Slurm `sacct -P`, `kubectl get pods -o json` or custom-columns, or any jobs CSV. Format detection, column mapping and a validation report with line numbers. Large files parse in a Web Worker.
 - **Join** jobs to GPUs by host, GPU index and time (known indices, then dcgm-exporter `hpc_job`/pod labels, then lowest free GPUs, flagged).
 - **Per job**: GPU-hours, mean/p95 SM and tensor activity, framebuffer peak vs capacity, idle GPU-hours, time at zero, multi-GPU imbalance. Classified as idle/abandoned, under-utilised, memory-bound compute-light, healthy or saturated.
 - **Right-sizing**: fewer GPUs, the smallest MIG profile that fits (dated A100/A30/H100/H200 table), or a smaller GPU class.
@@ -20,6 +20,19 @@ Schedulers report a cluster as full when every GPU is allocated, not when every 
 - **History**: monthly snapshots, a trend with a projected "with policies" point, and a compare view by account.
 - Local-first (IndexedDB). Optional email sign-in syncs clusters, settings and snapshots.
 - Two synthetic sample clusters: a 64× H100 Slurm research cluster and a 40-GPU Kubernetes inference fleet.
+
+## Tested against
+
+- An excerpt of a real dcgm-exporter capture from NVIDIA/k8s-test-infra (Apache-2.0), in `src/engine/fixtures`.
+- dcgm-exporter 4.9 metric names and units (`_BYTES`, `_RATIO`, `hostname`), from its `default-counters.csv` and release notes (November 2026).
+- Files written to match real layouts: an nvidia-smi log with no `index` column, and a `sacct -P` month with steps, array, het, CPU-only and pending jobs.
+- MIG profiles from the NVIDIA MIG User Guide, checked 2026-11-13, including B200, GB200, B300, GB300, GH200 and RTX PRO 6000.
+
+## Known gaps
+
+- MIG-enabled GPUs in DCGM data (`GPU_I_ID` labels) are merged into their parent GPU, not tracked per instance.
+- Grafana "series joined by time" CSV exports, which put host and GPU in the column names, need reshaping first.
+- MIG packing ignores placement-start rules, so check the plan with `nvidia-smi mig -lgip` before applying it.
 
 ## Run locally
 

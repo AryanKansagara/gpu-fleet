@@ -10,7 +10,21 @@ DCGM_FI_PROF_DRAM_ACTIVE
 DCGM_FI_DEV_FB_USED
 DCGM_FI_DEV_FB_FREE
 DCGM_FI_DEV_GPU_UTIL
-DCGM_FI_DEV_POWER_USAGE`
+DCGM_FI_DEV_POWER_USAGE
+# dcgm-exporter 4.9+ (DCGM 4.7 names, bytes and 0-1 ratios). Both sets are recognised.
+DCGM_FI_PROF_SM_UTIL_RATIO
+DCGM_FI_PROF_TENSOR_UTIL_RATIO
+DCGM_FI_DEV_FB_USED_BYTES
+DCGM_FI_DEV_FB_CAPACITY_BYTES
+DCGM_FI_DEV_GPU_UTIL_RATIO
+DCGM_FI_DEV_BOARD_POWER_WATTS`
+
+const SCRAPE = `# No Prometheus? Scrape dcgm-exporter directly on each node, one stamped scrape a minute.
+while sleep 60; do
+  echo "# $(date -u +%FT%TZ)"
+  curl -s http://localhost:9400/metrics
+done >> "dcgm-$(hostname -s).prom"
+# A single curl with no stamp also imports, as one bucket at import time.`
 
 const PROM_CURL = `PROM=http://prometheus.monitoring:9090
 START=2026-10-01T00:00:00Z END=2026-11-01T00:00:00Z STEP=60s
@@ -51,6 +65,7 @@ export default function Docs() {
         <nav>
           <a href="#overview">What you need</a>
           <a href="#dcgm">DCGM via Prometheus</a>
+          <a href="#scrape">dcgm-exporter scrapes</a>
           <a href="#smi">nvidia-smi logs</a>
           <a href="#slurm">Slurm sacct</a>
           <a href="#k8s">Kubernetes pods</a>
@@ -60,6 +75,7 @@ export default function Docs() {
           <a href="#mig">MIG profile table</a>
           <a href="#rates">Rates</a>
           <a href="#privacy">Privacy and sync</a>
+          <a href="#sources">Sources and test data</a>
         </nav>
       </aside>
       <div className="docs-body">
@@ -70,18 +86,23 @@ export default function Docs() {
         <p>Two things: <strong>GPU metrics</strong> over time, and <strong>who held which GPU when</strong>. If dcgm-exporter attaches pod or hpc_job labels (it does on Kubernetes with the GPU Operator), the metrics alone are enough. Import as many files as you like; GPUs merge by host and index, jobs by ID.</p>
 
         <h2 id="dcgm">DCGM metrics via Prometheus (recommended)</h2>
-        <p>dcgm-exporter publishes profiling metrics only if they are in its counters CSV. Make sure <code>DCGM_FI_PROF_SM_ACTIVE</code>, <code>DCGM_FI_PROF_PIPE_TENSOR_ACTIVE</code> and <code>DCGM_FI_PROF_DRAM_ACTIVE</code> are enabled (they are in the default <code>dcp-metrics-included.csv</code>).</p>
+        <p>dcgm-exporter publishes profiling metrics only if they are in its counters CSV. Up to 4.8, make sure <code>DCGM_FI_PROF_SM_ACTIVE</code>, <code>DCGM_FI_PROF_PIPE_TENSOR_ACTIVE</code> and <code>DCGM_FI_PROF_DRAM_ACTIVE</code> are enabled (they are in <code>dcp-metrics-included.csv</code>). dcgm-exporter 4.9 (November 2026) renamed the defaults to DCGM 4.7 names and units and deprecated that file; uncomment <code>DCGM_FI_PROF_SM_UTIL_RATIO</code> in <code>default-counters.csv</code> to keep SM activity. Byte and ratio fields are converted on import.</p>
         <Code label="PromQL series" code={PROM_QUERIES} />
         <Code label="Export the month" code={PROM_CURL} />
-        <p>Expected labels: <code>gpu</code>, <code>UUID</code>, <code>Hostname</code> (or <code>instance</code>), <code>modelName</code>, and when present <code>hpc_job</code>, <code>pod</code>/<code>namespace</code> or <code>exported_pod</code>/<code>exported_namespace</code>. Grafana CSV exports work too: long format (time, metric, value, labels) or wide (one column per DCGM field).</p>
+        <p>Expected labels: <code>gpu</code>, <code>UUID</code>, <code>Hostname</code> (<code>hostname</code> from 4.9, or <code>kubernetes_node</code>/<code>instance</code>), <code>modelName</code>, and when present <code>hpc_job</code>, <code>pod</code>/<code>namespace</code> or <code>exported_pod</code>/<code>exported_namespace</code>. Grafana CSV exports work too: long format (time, metric, value, labels) or wide (one column per DCGM field).</p>
+
+        <h2 id="scrape">dcgm-exporter scrapes (no Prometheus)</h2>
+        <Code label="On every node" code={SCRAPE} />
+        <p>The text format dcgm-exporter serves on <code>:9400/metrics</code> imports as is. Each <code>#</code> line holding a time stamps the samples after it; per-line Prometheus timestamps (ms) also work. Limit, throttle-counter, energy and reserved-memory fields are ignored. A DCGM host name like <code>gpu01.cluster.local</code> joins to the Slurm or Kubernetes node <code>gpu01</code>.</p>
 
         <h2 id="smi">nvidia-smi logs (no Prometheus)</h2>
         <Code label="On every node" code={SMI} />
-        <p>nvidia-smi has no SM activity counter, so the report falls back to <code>utilization.gpu</code> and marks those numbers as an upper bound.</p>
+        <p>A log without <code>index</code> is read as GPU 0 of a single-GPU host. Percent columns are converted by column, so a GPU idling at 1&nbsp;% is never read as 100&nbsp;%. nvidia-smi has no SM activity counter, so the report falls back to <code>utilization.gpu</code> and marks those numbers as an upper bound.</p>
 
         <h2 id="slurm">Slurm: sacct</h2>
         <Code label="One month of GPU allocations" code={SACCT} />
-        <p><code>--allocations</code> drops job steps, <code>--parsable2</code> gives pipe-separated output with a header, and <code>TZ=UTC</code> keeps times in UTC to line up with Prometheus. GPUs come from <code>AllocTRES</code> (<code>gres/gpu=8</code>); multi-node jobs split them evenly across <code>NodeList</code>.</p>
+        <p><code>--allocations</code> drops job steps, <code>--parsable2</code> gives pipe-separated output with a header, and <code>TZ=UTC</code> keeps times in UTC to line up with Prometheus. Forgot <code>TZ=UTC</code>? Choose &ldquo;this browser&rsquo;s time zone&rdquo; for times without a zone when you import. Step rows (<code>.batch</code>, <code>.extern</code>, <code>.0</code>, <code>.interactive</code>) are skipped, array (<code>88121_3</code>) and het (<code>88123+0</code>) jobs are kept, and CPU-only or pending jobs are counted once in a single note. Older clusters that only record <code>AllocGRES</code> (<code>gpu:a100:2</code>) work too.</p>
+        <p>GPUs come from <code>AllocTRES</code> (<code>gres/gpu=8</code>); multi-node jobs split them evenly across <code>NodeList</code>.</p>
         <Code label="GPU indices" code={SCONTROL} />
         <p>Without indices or labels, a job is placed on the lowest free GPUs of its node, the way <code>select/cons_tres</code> usually allocates. Those jobs are flagged as inferred.</p>
 
@@ -117,6 +138,13 @@ export default function Docs() {
 
         <h2 id="rates">Rates</h2>
         <p>Default $/GPU-hour values are illustrative placeholders as of November 2026 (H100 {DEFAULT_CONFIG.rates.H100}, A100 {DEFAULT_CONFIG.rates.A100}, L4 {DEFAULT_CONFIG.rates.L4}), not quotes. Replace them with your contract rate, or with an amortised on-prem rate: (capex per GPU + yearly opex × years) ÷ (years × 8,760). The Chargeback tab has a calculator.</p>
+
+        <h2 id="sources">Sources and test data</h2>
+        <ul>
+          <li><strong>MIG profiles:</strong> <a href="https://docs.nvidia.com/datacenter/tesla/mig-user-guide/supported-mig-profiles.html" target="_blank" rel="noreferrer">NVIDIA MIG User Guide, Supported MIG Profiles</a>, checked {MIG_TABLE_DATE}. Adds B200, GB200, B300, GB300, H100 96GB (GH200) and RTX PRO 6000.</li>
+          <li><strong>DCGM field names and units:</strong> <a href="https://github.com/NVIDIA/dcgm-exporter/blob/main/etc/default-counters.csv" target="_blank" rel="noreferrer">dcgm-exporter default-counters.csv</a> and the <a href="https://docs.nvidia.com/datacenter/dcgm/latest/release-notes/dcgm-exporter.html" target="_blank" rel="noreferrer">4.9.0 release notes</a> (released 2026-11-06), checked 2026-11-13.</li>
+          <li><strong>Importer tests</strong> run against an excerpt of a real dcgm-exporter capture from <a href="https://github.com/NVIDIA/k8s-test-infra" target="_blank" rel="noreferrer">NVIDIA/k8s-test-infra</a> (Apache-2.0), plus files written to match real layouts: a dcgm-exporter 4.9 scrape, an index-less nvidia-smi log and a <code>sacct -P</code> month with steps, arrays, het and pending jobs.</li>
+        </ul>
 
         <h2 id="privacy">Privacy and sync</h2>
         <p>Files are parsed in a Web Worker in your browser and stored in IndexedDB. Signing in (optional) syncs cluster settings, rates, the import log and monthly snapshots. Raw telemetry syncs only when it is under 1.5 MB; otherwise it stays on the device where you imported it.</p>

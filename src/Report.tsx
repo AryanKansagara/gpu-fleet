@@ -86,7 +86,7 @@ export default function Report({ id }: { id: string }) {
       {fixes.length === 0 ? <p>No waste worth chasing this month.</p> : <ol className="report-fixes">{fixes.map((j: JobStats) => <li key={j.id}><strong className="mono">{j.id}</strong>{j.name ? ` (${j.name})` : ''}, {j.user}, {j.gpus}× {j.model}, {fmtN(j.gpuHours)} GPU-h. {j.rec.text} <em>{m(Math.max(j.idleCost, j.recoverableGpuHours * j.rate))} recoverable.</em></li>)}</ol>}
 
       <footer className="report-foot small muted">
-        Charge = allocated GPU-hours × rate, whether or not the GPU did work. Idle = DCGM SM activity below {fmtPct(project.config.idleThreshold)} while allocated. SM activity is DCGM_FI_PROF_SM_ACTIVE{a.smProxy ? ' (GPU utilisation where profiling metrics were not collected, an upper bound)' : ''}. Rates are set by your platform team. {project.sampleId ? 'This statement uses synthetic data.' : ''} Generated with GPU Fleet Report, an independent project not affiliated with NVIDIA.
+        Charge = allocated GPU-hours × rate, whether or not the GPU did work. Idle = DCGM SM activity below {fmtPct(project.config.idleThreshold)} while allocated. SM activity is DCGM_FI_PROF_SM_ACTIVE{a.smProxy ? ' (GPU utilisation where profiling metrics were not collected, an upper bound)' : ''}. Rates are set by your platform team. {project.sampleId ? 'This statement uses synthetic data.' : ''} Generated with GPU Fleet Report.
       </footer>
     </div>
   )

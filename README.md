@@ -45,4 +45,4 @@ npm run build
 
 Cloud sync needs `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env` (see `.env.example`). Without them the app runs in local-only mode.
 
-Built by Aryan Kansagara. Independent project, not affiliated with NVIDIA.
+Built by Aryan Kansagara.

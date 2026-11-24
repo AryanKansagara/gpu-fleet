@@ -100,6 +100,14 @@ test.describe('importing existing exports', () => {
     await page.getByRole('button', { name: 'Import 4 jobs' }).click()
     await expect(page.getByText('Imported 4 jobs, skipped 6')).toBeVisible()
 
+    // The sacct jobs ended before this scrape started. They are named on the Data tab and on Overview, not dropped quietly.
+    const outside = '4 imported jobs do not overlap the telemetry (2026-11-12 10:00 to 2026-11-12 10:05 UTC), so none appear in this report: 88120, 88121_3, 88123+0, 88122.'
+    await expect(page.locator('.banner.warn')).toContainText(outside)
+    await tab(page, 'Overview').click()
+    await expect(page.getByText('1 GPUs · 0 jobs · November 2026')).toBeVisible()
+    await expect(page.locator('.banner.warn')).toContainText(outside)
+    await tab(page, 'Data').click()
+
     const imports = page.locator('.panel', { has: page.getByRole('heading', { name: 'Imported data' }) })
     await expect(imports.getByRole('row', { name: /sacct-mixed\.psv\s+Slurm sacct \(parsable\)\s+4\s+6/ })).toBeVisible()
     await expect(imports.getByRole('row', { name: /dcgm-exporter-4\.9\.prom\s+dcgm-exporter \/metrics scrapes \(text\)\s+11\s+0/ })).toBeVisible()
@@ -111,6 +119,29 @@ test.describe('importing existing exports', () => {
     await expect(imports.getByRole('row')).toHaveCount(3)
     await page.goto('/app')
     await expect(page.getByRole('heading', { name: 'Cluster 1' })).toBeVisible()
+  })
+
+  test('a job on a host with no telemetry and a job outside the range are each named, and a job that matches is not', async ({ page }) => {
+    await page.goto('/app')
+    await page.getByRole('button', { name: 'Import your data' }).click()
+    const input = page.locator('input[type=file]')
+    await input.setInputFiles(fixture('dcgm-exporter-4.9.prom'))
+    await page.getByRole('button', { name: 'Import 11 samples' }).click()
+    await expect(page.getByText('Imported 11 samples')).toBeVisible()
+
+    const jobs = 'job_id,user,account,start,end,gpus,nodelist\n88123,ann,vision,2026-11-12T10:00:00,2026-11-12T10:05:00,1,dgx-b200-07\n99001,bo,nlp,2026-11-12T10:00:00,2026-11-12T10:05:00,1,gpu99\n99002,cy,nlp,2026-11-13T10:00:00,2026-11-13T11:00:00,1,dgx-b200-07\n'
+    await input.setInputFiles({ name: 'jobs.csv', mimeType: 'text/csv', buffer: Buffer.from(jobs) })
+    await page.getByRole('button', { name: 'Import 3 jobs' }).click()
+    await expect(page.getByText('Imported 3 jobs')).toBeVisible()
+    const notice = page.locator('.banner.warn')
+    await expect(notice).toHaveCount(2)
+    await expect(notice.first()).toContainText('1 imported job does not overlap the telemetry (2026-11-12 10:00 to 2026-11-12 10:05 UTC), so it does not appear in this report: 99002.')
+    await expect(notice.nth(1)).toContainText('1 job ran on hosts with no telemetry (gpu99), so it is listed as No telemetry and has no usage figures.')
+    await expect(notice.nth(1)).toContainText('Check that the host names match between the exports: 99001.')
+
+    await tab(page, 'Overview').click()
+    await expect(page.getByText('1 GPUs · 2 jobs · November 2026')).toBeVisible()
+    await expect(page.locator('.banner.warn').nth(1)).toContainText('1 job ran on hosts with no telemetry (gpu99)')
   })
 
   test('the nvidia-smi log without an index column warns and still imports', async ({ page }) => {

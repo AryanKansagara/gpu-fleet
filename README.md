@@ -11,7 +11,7 @@ Schedulers report a cluster as full when every GPU is allocated, not when every 
 ## Features
 
 - **Import** DCGM metrics from a Prometheus range query (JSON or CSV, long or wide), raw dcgm-exporter `/metrics` scrapes (single or appended with time stamps), `nvidia-smi --query-gpu` logs, Slurm `sacct -P`, `kubectl get pods -o json` or custom-columns, or any jobs CSV. Format detection, column mapping and a validation report with line numbers. Large files parse in a Web Worker.
-- **Join** jobs to GPUs by host, GPU index and time (known indices, then dcgm-exporter `hpc_job`/pod labels, then lowest free GPUs, flagged).
+- **Join** jobs to GPUs by host, GPU index and time (known indices, then dcgm-exporter `hpc_job`/pod labels, then lowest free GPUs, flagged). Jobs that fall outside the telemetry range, or run on hosts with no telemetry, are named on Overview and the Data tab.
 - **Per job**: GPU-hours, mean/p95 SM and tensor activity, framebuffer peak vs capacity, idle GPU-hours, time at zero, multi-GPU imbalance. Classified as idle/abandoned, under-utilised, memory-bound compute-light, healthy or saturated.
 - **Right-sizing**: fewer GPUs, the smallest MIG profile that fits (dated A100/A30/H100/H200 table), or a smaller GPU class.
 - **Recoverable capacity**: the month replayed with an idle timeout, MIG slices and right-sized GPU counts, re-packed per node. The fleet heatmap animates before and after.

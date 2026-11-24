@@ -46,9 +46,14 @@ export interface Placement {
   missingHosts: string[]
 }
 
+/** Bucket range [b0, b1) a job covers in the fleet, clipped to the telemetry. Empty (b1 <= b0) when the job does not overlap it. */
+export function jobSpan(f: Fleet, job: Job): [number, number] {
+  const ms = f.step * 1000
+  return [Math.max(0, Math.floor((job.start - f.t0) / ms)), Math.min(f.n, Math.ceil((job.end - f.t0) / ms))]
+}
+
 /** Joins jobs to GPU tracks by host, GPU index and time. Known indices win; then metric owner labels; then lowest free GPUs on the host. */
 export function place(f: Fleet, jobs: Job[]): Placement[] {
-  const ms = f.step * 1000
   const byHost = new Map<string, number[]>()
   const byShort = new Map<string, number[]>()
   f.tracks.forEach((t, i) => {
@@ -57,8 +62,7 @@ export function place(f: Fleet, jobs: Job[]): Placement[] {
   const busyUntil = new Map<number, number>() // track -> bucket where its current inferred holder ends
   const out: Placement[] = []
   for (const job of [...jobs].sort((a, b) => a.start - b.start || a.id.localeCompare(b.id))) {
-    const b0 = Math.max(0, Math.floor((job.start - f.t0) / ms))
-    const b1 = Math.min(f.n, Math.ceil((job.end - f.t0) / ms))
+    const [b0, b1] = jobSpan(f, job)
     const p: Placement = { job, cells: [], inferred: false, missingHosts: [] }
     out.push(p)
     if (b1 <= b0) continue
@@ -87,6 +91,32 @@ export function place(f: Fleet, jobs: Job[]): Placement[] {
     }
   }
   return out
+}
+
+/** Jobs that cannot be joined to telemetry, whatever period is shown. */
+export interface JobCoverage {
+  /** Telemetry range in ms since epoch, [from, to). */
+  from: number
+  to: number
+  /** Jobs that do not overlap the telemetry at all. analyze() leaves them out of every report. */
+  outside: Job[]
+  /** Jobs inside the telemetry range whose hosts all have no telemetry. They are reported as "No telemetry". */
+  unmatched: Job[]
+  /** Host names of the unmatched jobs. */
+  unmatchedHosts: string[]
+}
+
+export function jobCoverage(f: Fleet, jobs: Job[]): JobCoverage {
+  const c: JobCoverage = { from: f.t0, to: f.t0 + f.n * f.step * 1000, outside: [], unmatched: [], unmatchedHosts: [] }
+  if (!f.n) return c
+  const hosts = new Set<string>()
+  for (const pl of place(f, jobs)) {
+    const [b0, b1] = jobSpan(f, pl.job)
+    if (b1 <= b0) c.outside.push(pl.job)
+    else if (!pl.cells.length && pl.missingHosts.length) { c.unmatched.push(pl.job); pl.missingHosts.forEach(h => hosts.add(h)) }
+  }
+  c.unmatchedHosts = [...hosts].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  return c
 }
 
 // ---------- Per-job metrics ----------

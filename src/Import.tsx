@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import CoverageNotice from './Coverage.tsx'
 import { FORMATS, hostFromFileName, JOB_FIELDS, mergeJobs, METRIC_FIELDS, toCsv, type Format } from './engine/parse.ts'
 import type { Config } from './engine/types.ts'
 import { createBlankProject } from './projectData.ts'
@@ -75,6 +76,7 @@ export default function DataTab({ project, ds, update }: { project: Project; ds:
   return (
     <>
       {project.dataMissing && <div className="banner warn"><span><strong>This cluster&rsquo;s raw telemetry is on another device.</strong> Settings, rates and snapshots synced; telemetry over {(RAW_SYNC_LIMIT / 1e6).toFixed(1)} MB stays where it was imported. Re-import here to recompute.</span></div>}
+      <CoverageNotice ds={ds} />
       {!hasMetrics && !pending.length && (
         <div className="banner"><span><strong>Start here.</strong> Two files make a full report: GPU metrics (DCGM via Prometheus, or nvidia-smi logs) and a job list (Slurm sacct or kubectl pods). Metrics alone work too if dcgm-exporter attaches pod or hpc_job labels. <Link href="/docs">Exact commands</Link>.</span></div>
       )}

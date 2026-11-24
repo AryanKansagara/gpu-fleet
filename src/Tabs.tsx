@@ -4,6 +4,7 @@ import { migCommands } from './engine/mig.ts'
 import { jobSubmitLua, jobsCsv, jupyterHubCuller, kubeflowCuller, migPartedYaml, policyTargets, promAlert, reaperScript, slurmConf, teamsCsv, userNote } from './engine/policy.ts'
 import type { JobClass } from './engine/types.ts'
 import { Heatmap, HeatLegend } from './Heatmap.tsx'
+import CoverageNotice from './Coverage.tsx'
 import { Counter, useTween } from './motion.tsx'
 import type { Tab, TabProps } from './Project.tsx'
 import { effectiveJobs } from './projectData.ts'
@@ -48,6 +49,7 @@ function Overview({ a, cfg, setConfig, ds, period }: TabProps) {
   }, [a])
   return (
     <>
+      <CoverageNotice ds={ds} />
       {(a.smProxy || a.inferredJobs > 0) && (
         <div className="banner warn"><span>
           {a.smProxy && <><strong>Some GPUs only report utilisation, not SM activity.</strong> GPU utilisation counts any kernel running, so those numbers are an upper bound. <Link href="/docs#sm-vs-util">Why</Link>. </>}

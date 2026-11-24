@@ -143,7 +143,7 @@ function PendingFile({ p, onReparse, onCancel, onCommit, disabled }: { p: Pendin
   const r = p.r
   const fields = r.schema === 'metrics' ? METRIC_FIELDS : JOB_FIELDS
   const errors = r.issues.filter(i => i.level === 'error')
-  const csvLike = r.format !== 'prom-json' && r.format !== 'prom-text' && r.format !== 'k8s-json'
+  const csvLike = r.format !== 'prom-json' && r.format !== 'prom-text' && r.format !== 'k8s-json' && !r.unreadable
   const needsHost = r.schema === 'metrics' && csvLike && r.map.host === undefined
   const fleet = r.fleet
   return (
@@ -179,13 +179,13 @@ function PendingFile({ p, onReparse, onCancel, onCommit, disabled }: { p: Pendin
         </>
       )}
       <h3 className="small strong" style={{ marginTop: 8 }}>Validation {p.busy && <span className="spinner sm" aria-label="Re-checking" />}</h3>
-      <p className="small">
+      {!r.unreadable && <p className="small">
         <strong className="good-text">{r.ok.toLocaleString()} {r.schema === 'jobs' ? 'jobs' : 'samples'} ready</strong> of {r.total.toLocaleString()} {r.format === 'prom-json' || r.format === 'prom-text' ? 'values' : r.format === 'k8s-json' ? 'pods' : 'rows'}
         {r.skipped > 0 && <>, <strong className="error">{r.skipped.toLocaleString()} skipped</strong></>}
         {r.issues.length > errors.length && <>, {r.issues.length - errors.length} warnings</>}.
         {fleet?.n ? <> {fleet.tracks.length} GPUs on {new Set(fleet.tracks.map(t => t.host)).size} hosts, {new Date(fleet.t0).toISOString().slice(0, 16).replace('T', ' ')} to {new Date(fleet.t0 + fleet.n * fleet.step * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC.</> : null}
         {r.jobs?.length ? <> {new Set(r.jobs.map(j => j.account)).size} accounts, {new Set(r.jobs.map(j => j.user)).size} users, {r.jobs.reduce((s, j) => s + j.gpus, 0).toLocaleString()} GPUs requested.</> : null}
-      </p>
+      </p>}
       {r.issues.length > 0 && (
         <div className="issues" role="log" aria-label="Validation issues">
           {r.issues.slice(0, 200).map((i, k) => <div key={k} className={i.level === 'error' ? 'error-row' : ''}><span className="ln">{i.line === 0 ? 'file' : r.format === 'prom-json' ? `series ${i.line}` : r.format === 'prom-text' ? (i.message.startsWith('Series') ? `series ${i.line}` : `line ${i.line}`) : r.format === 'k8s-json' ? `pod ${i.line}` : `line ${i.line}`}</span><span>{i.message}</span></div>)}

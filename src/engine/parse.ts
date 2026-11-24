@@ -407,6 +407,8 @@ export interface Parsed {
   issues: Issue[]
   fleet?: Fleet
   jobs?: Job[]
+  /** The file has no usable content at all (empty, not text, no rows), so column mapping cannot help. The one issue says why. */
+  unreadable?: boolean
 }
 
 const MAX_ISSUES = 500
@@ -619,10 +621,45 @@ export function parseK8sJson(text: string, now = Date.now()): Parsed {
   return { format: 'k8s-json', schema: 'jobs', total: items.length, ok: jobs.length, skipped, issues, jobs }
 }
 
-/** Full parse with automatic mapping. Used by the worker and the tests. */
-export function parseFile(text: string, opts: { fileName?: string; format?: Format; map?: Mapping; hostDefault?: string; step?: number; now?: number; localTime?: boolean } = {}): Parsed & { headers: string[]; map: Mapping } {
+type ParseOpts = { fileName?: string; format?: Format; map?: Mapping; hostDefault?: string; step?: number; now?: number; localTime?: boolean }
+export type ParsedFile = Parsed & { headers: string[]; map: Mapping }
+
+const NOT_TEXT = 'This is not a UTF-8 text file: it looks like binary data (an image, archive or spreadsheet) or UTF-16 text. Export it as plain UTF-8 text.'
+
+/** Binary data decoded as UTF-8 is full of NUL, other control characters and U+FFFD; UTF-16 text is half NUL. Only the start is looked at. */
+export function looksBinary(text: string): boolean {
+  const n = Math.min(text.length, 65536)
+  let bad = 0
+  for (let i = 0; i < n; i++) {
+    const c = text.charCodeAt(i)
+    if (c === 0xfffd || (c < 32 && c !== 9 && c !== 10 && c !== 13 && c !== 12)) bad++
+  }
+  return n > 0 && bad / n > 0.1
+}
+
+/** Full parse with automatic mapping. Used by the worker and the tests. A file with nothing usable in it gets one plain reason instead of mapping errors. */
+export function parseFile(text: string, opts: ParseOpts = {}): ParsedFile {
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1)
   const format = opts.format ?? detectFormat(text, opts.fileName)
+  const refuse = (message: string): ParsedFile => ({ format, schema: FORMATS[format].schema, total: 0, ok: 0, skipped: 0, issues: [{ line: 0, level: 'error', message }], headers: [], map: {}, unreadable: true })
+  if (!/\S/.test(text)) return refuse('This file is empty.')
+  let r: ParsedFile
+  try { r = parseDetected(text, format, opts) } catch (e) {
+    if (looksBinary(text)) return refuse(NOT_TEXT)
+    throw e
+  }
+  // Only files that gave nothing are re-explained, so nothing that used to import changes.
+  if (r.ok === 0) {
+    if (looksBinary(text)) return refuse(NOT_TEXT)
+    if (format !== 'prom-json' && format !== 'prom-text' && format !== 'k8s-json') {
+      if (r.total === 0) return refuse(r.headers.length ? 'This file has a header line but no data rows.' : 'This file has no readable rows.')
+      if (r.headers.length === 1) return refuse('This does not look like a table: the first line has one column (no comma, tab, semicolon, pipe or aligned columns). Export the data as CSV.')
+    }
+  }
+  return r
+}
+
+function parseDetected(text: string, format: Format, opts: ParseOpts): ParsedFile {
   if (format === 'prom-json') return { ...parsePromJson(text, opts.step), headers: [], map: {} }
   if (format === 'prom-text') return { ...parsePromText(text, opts), headers: [], map: {} }
   if (format === 'k8s-json') return { ...parseK8sJson(text, opts.now), headers: [], map: {} }

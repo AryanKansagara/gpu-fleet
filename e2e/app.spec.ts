@@ -127,11 +127,46 @@ test.describe('importing existing exports', () => {
 })
 
 test.describe('files the app cannot use', () => {
+  // Files with nothing usable in them get one plain reason, with no counts and no column mapping to fill in.
+  const unreadable = [
+    { name: 'empty.csv', body: '', says: 'This file is empty.' },
+    { name: 'blank.csv', body: '\n  \n', says: 'This file is empty.' },
+    { name: 'binary.json', body: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0xff, 0xfe]), says: /^This is not a UTF-8 text file/ },
+    { name: 'utf16.csv', body: Buffer.from('timestamp,hostname,gpu,dcgm_fi_prof_sm_active\n2026-11-12T10:00:00,n1,0,0.5\n', 'utf16le'), says: /^This is not a UTF-8 text file/ },
+    { name: 'header-only.csv', body: 'timestamp,hostname,gpu,dcgm_fi_prof_sm_active\n', says: 'This file has a header line but no data rows.' },
+    { name: 'words.txt', body: 'hello\nworld\n', says: /^This does not look like a table: the first line has one column/ },
+  ]
+  for (const f of unreadable) {
+    test(`${f.name} is explained as a file, not as a column mapping, and cannot be committed`, async ({ page }) => {
+      await page.goto('/app')
+      await page.getByRole('button', { name: 'Import your data' }).click()
+      await page.locator('input[type=file]').setInputFiles({ name: f.name, mimeType: 'application/octet-stream', buffer: Buffer.from(f.body) })
+      await expect(page.getByRole('log', { name: 'Validation issues' }).getByText(f.says)).toBeVisible()
+      await expect(page.getByRole('log', { name: 'Validation issues' }).locator('.error-row')).toHaveCount(1)
+      await expect(page.getByText(/ready of/)).toHaveCount(0)
+      await expect(page.getByText('Column mapping')).toHaveCount(0)
+      await expect(page.getByText(/Map a column to|No host column/)).toHaveCount(0)
+      await expect(page.getByRole('button', { name: /^Import 0 / })).toBeDisabled()
+      await expect(page.getByRole('heading', { name: 'Imported data' })).toHaveCount(0)
+      await expect(page.locator('.toast.ok')).toHaveCount(0)
+    })
+  }
+
+  test('an empty file stays empty when another format is chosen', async ({ page }) => {
+    await page.goto('/app')
+    await page.getByRole('button', { name: 'Import your data' }).click()
+    await page.locator('input[type=file]').setInputFiles({ name: 'empty.json', mimeType: 'application/json', buffer: Buffer.from('') })
+    await expect(page.getByText('This file is empty.')).toBeVisible()
+    await formatSelect(page).selectOption('prom-json')
+    await expect(page.getByText('This file is empty.')).toBeVisible()
+    await expect(page.locator('.toast.error')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^Import 0 / })).toBeDisabled()
+  })
+
+  // Rows exist but nothing matches a known column: the mapping form is still the useful answer.
   const bad = [
     { name: 'notes.txt', body: 'hello world\nthis is not telemetry\n', says: /Map a column to "Timestamp" to import this file\./, ready: /0 samples ready of 1 rows, 1 skipped/ },
-    { name: 'empty.csv', body: '', says: /Map a column to "Timestamp" to import this file\./, ready: /0 samples ready of 0 rows/ },
     { name: 'other.json', body: '{"hello":[1,2,3]}', says: /No pods found\. Expected the output of kubectl get pods -A -o json\./, ready: /0 jobs ready of 0 pods/ },
-    { name: 'binary.json', body: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0xff, 0xfe]), says: /Map a column to "Timestamp" to import this file\./, ready: /0 samples ready of 3 rows, 3 skipped/ },
   ]
   for (const f of bad) {
     test(`${f.name} says why it cannot be imported and cannot be committed`, async ({ page }) => {

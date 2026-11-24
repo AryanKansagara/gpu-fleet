@@ -41,7 +41,10 @@ npm install
 npm run dev     # http://localhost:5173
 npm test        # engine tests
 npm run build
+npm run test:e2e
 ```
+
+`npm run test:e2e` builds the app, serves the production build with `vite preview` on port 4829 (set `E2E_PORT` to change it) and drives it with Playwright in Chromium. It runs signed out with every non-local request stubbed or blocked, and fails on any uncaught page error. It reuses the fixtures in `src/engine/fixtures`. The first time, install the browser with `npx playwright install chromium` (add `--with-deps` on a bare Linux machine). GitHub Actions runs the build, the engine tests and the browser tests on every pull request and push to `main`.
 
 Cloud sync needs `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env` (see `.env.example`). Without them the app runs in local-only mode.
 
